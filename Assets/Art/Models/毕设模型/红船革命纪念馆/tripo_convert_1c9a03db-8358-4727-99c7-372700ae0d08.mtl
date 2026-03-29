@@ -1,0 +1,16 @@
+# Blender 4.5.0 MTL File: 'None'
+# www.blender.org
+
+newmtl tripo_mat_1c9a03db-8358-4727-99c7-372700ae0d08
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd 红船革命纪念馆_basecolor.JPEG
+map_Ns 红船革命纪念馆_roughness.JPEG
+map_Pr 红船革命纪念馆_roughness.JPEG
+map_refl 红船革命纪念馆_metallic.JPEG
+map_Pm 红船革命纪念馆_metallic.JPEG
+map_Bump -bm 1.000000 红船革命纪念馆_normal.JPEG
