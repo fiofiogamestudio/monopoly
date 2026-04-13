@@ -1,0 +1,78 @@
+{
+  "toolCards": [
+    {
+      "id": "T001",
+      "cardName": "油纸伞",
+      "description": "抵消一次跳过回合效果。",
+      "effect": "skip_protect, 1"
+    },
+    {
+      "id": "T002",
+      "cardName": "乌篷船票",
+      "description": "立刻前进 2 格。",
+      "effect": "move, 2"
+    },
+    {
+      "id": "T003",
+      "cardName": "粽香补给",
+      "description": "立刻获得 500 嘉禾币。",
+      "effect": "gain, 500"
+    },
+    {
+      "id": "T004",
+      "cardName": "蓝印花布护符",
+      "description": "下一次支付过路费时减免 300 嘉禾币。",
+      "effect": "rent_discount, 300"
+    },
+    {
+      "id": "T005",
+      "cardName": "导游旗",
+      "description": "额外再掷一次骰子并移动。",
+      "effect": "roll_again"
+    },
+    {
+      "id": "T006",
+      "cardName": "商铺优惠券",
+      "description": "下一次购买地产返利 300 嘉禾币。",
+      "effect": "buy_rebate, 300"
+    }
+  ],
+  "luckCards": [
+    {
+      "id": "L001",
+      "cardName": "市集热卖",
+      "description": "获得 600 嘉禾币。",
+      "effect": "gain, 600"
+    },
+    {
+      "id": "L002",
+      "cardName": "文化讲解费",
+      "description": "支付 400 嘉禾币。",
+      "effect": "gain, -400"
+    },
+    {
+      "id": "L003",
+      "cardName": "游客打赏",
+      "description": "随机从一名其他玩家处获得 200 嘉禾币。",
+      "effect": "get_from_others, 200"
+    },
+    {
+      "id": "L004",
+      "cardName": "烟雨耽搁",
+      "description": "下回合跳过一次行动。",
+      "effect": "skip_turn"
+    },
+    {
+      "id": "L005",
+      "cardName": "文创热卖",
+      "description": "获得 500 嘉禾币。",
+      "effect": "gain, 500"
+    },
+    {
+      "id": "L006",
+      "cardName": "水路绕行",
+      "description": "后退 2 格。",
+      "effect": "move, -2"
+    }
+  ]
+}

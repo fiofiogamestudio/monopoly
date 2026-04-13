@@ -1,17 +1,29 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class LookAtCamera : MonoBehaviour
 {
+    public bool useMainCamera = true;
+    public Camera targetCamera;
+    public bool invertForward = false;
 
-    // Start is called before the first frame update
-    public void Update()
+    private void LateUpdate()
     {
-        // Look at main camera
-        if (Camera.main != null)
+        FaceCamera();
+    }
+
+    private void FaceCamera()
+    {
+        Camera cameraToUse = targetCamera != null ? targetCamera : (useMainCamera ? Camera.main : null);
+        if (cameraToUse == null)
         {
-            transform.LookAt(new Vector3(1000, 1000, 1000));
+            return;
         }
+
+        Quaternion cameraRotation = cameraToUse.transform.rotation;
+        Quaternion facingRotation = invertForward
+            ? cameraRotation * Quaternion.Euler(0f, 180f, 0f)
+            : cameraRotation;
+
+        transform.rotation = facingRotation;
     }
 }

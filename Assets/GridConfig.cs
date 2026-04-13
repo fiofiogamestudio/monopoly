@@ -8,6 +8,10 @@ public class GridConfig : MonoBehaviour
 
     public void Awake()
     {
-        this.GetComponent<MeshRenderer>().enabled = false;
+        MeshRenderer meshRenderer = GetComponent<MeshRenderer>();
+        if (meshRenderer != null)
+        {
+            meshRenderer.enabled = false;
+        }
     }
 }
