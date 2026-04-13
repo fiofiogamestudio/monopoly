@@ -382,3 +382,6 @@ AI 目前仍是轻量规则型，不追求复杂博弈�?
 - 同样的参数也已写入 GameScene 里的 MapManager 组件，后续可直接在 Inspector 中微调，不需要改代码。## 2026-04-14 Owner Sign Readability Tuning
 
 - Assets/Prefabs/Tile.prefab 中的地产归属牌已整体放大，包括底牌尺寸、前侧底座和世界空间画布缩放；Assets/TileController.cs 也同步提高了归属文字的最佳适配字号范围，购买后的所有者标识会更容易看清。
+## 2026-04-14 Menu Resolution Lock
+
+- `Assets/Scenes/MenuScene.unity` 已挂载 `Assets/ForceResolution.cs`，进入菜单时会在 `Awake()` 阶段强制 `1920x1080` 窗口化显示。

@@ -1,12 +1,15 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
+[DefaultExecutionOrder(-1000)]
 public class ForceResolution : MonoBehaviour
 {
-    public void Awake()
+    private const int TargetWidth = 1920;
+    private const int TargetHeight = 1080;
+
+    private void Awake()
     {
-        // force to 1920x1080, and windowed mode
-        Screen.SetResolution(1920, 1080, false);
+        Screen.fullScreenMode = FullScreenMode.Windowed;
+        Screen.fullScreen = false;
+        Screen.SetResolution(TargetWidth, TargetHeight, FullScreenMode.Windowed);
     }
 }
