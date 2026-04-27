@@ -6,6 +6,8 @@ public class PlayerInfoItem : MonoBehaviour
     public Text nameText;
     public Text moneyText;
     public Image backgroundImage;
+    public RectTransform avatarMaskRoot;
+    public Image avatarImage;
     public RectTransform propertyCardRoot;
     public Image propertyCardBackground;
     public Text propertyCardText;
@@ -16,7 +18,6 @@ public class PlayerInfoItem : MonoBehaviour
     private string _controlTag = "";
     private string _ownedSummary = "\u623f\u4ea7\uff1a\u65e0";
     private int _money;
-    private Color _accentColor = new Color(0.20f, 0.63f, 0.72f, 1f);
 
     private void Awake()
     {
@@ -25,45 +26,22 @@ public class PlayerInfoItem : MonoBehaviour
             backgroundImage = GetComponentInChildren<Image>();
         }
 
-        if (nameText != null)
+        if (avatarImage == null)
         {
-            nameText.resizeTextForBestFit = true;
-            nameText.resizeTextMinSize = 14;
-            nameText.resizeTextMaxSize = 24;
-            nameText.fontStyle = FontStyle.Bold;
-            nameText.horizontalOverflow = HorizontalWrapMode.Overflow;
-            nameText.verticalOverflow = VerticalWrapMode.Overflow;
+            Transform avatarTransform = transform.Find("AvatarMask/AvatarImage");
+            avatarImage = avatarTransform != null ? avatarTransform.GetComponent<Image>() : null;
         }
 
-        if (moneyText != null)
+        if (avatarMaskRoot == null && avatarImage != null && avatarImage.transform.parent != null)
         {
-            moneyText.resizeTextForBestFit = true;
-            moneyText.resizeTextMinSize = 10;
-            moneyText.resizeTextMaxSize = 18;
-            moneyText.fontStyle = FontStyle.Normal;
-            moneyText.alignment = TextAnchor.UpperLeft;
-            moneyText.horizontalOverflow = HorizontalWrapMode.Wrap;
-            moneyText.verticalOverflow = VerticalWrapMode.Overflow;
-            moneyText.lineSpacing = 0.92f;
+            avatarMaskRoot = avatarImage.transform.parent.GetComponent<RectTransform>();
         }
 
-        if (propertyCardText != null)
-        {
-            propertyCardText.resizeTextForBestFit = true;
-            propertyCardText.resizeTextMinSize = 9;
-            propertyCardText.resizeTextMaxSize = 15;
-            propertyCardText.fontStyle = FontStyle.Normal;
-            propertyCardText.alignment = TextAnchor.MiddleCenter;
-            propertyCardText.horizontalOverflow = HorizontalWrapMode.Wrap;
-            propertyCardText.verticalOverflow = VerticalWrapMode.Overflow;
-            propertyCardText.lineSpacing = 0.92f;
-        }
     }
 
     public void ApplyRuntimeStyle(Font font, Color accentColor)
     {
-        _accentColor = accentColor;
-        RefreshVisuals();
+        RefreshTexts();
     }
 
     public void SetName(string playerName)
@@ -82,6 +60,18 @@ public class PlayerInfoItem : MonoBehaviour
     {
         _controlTag = controlTag ?? "";
         RefreshTexts();
+    }
+
+    public void SetAvatar(Sprite avatarSprite)
+    {
+        if (avatarImage == null)
+        {
+            return;
+        }
+
+        avatarImage.sprite = avatarSprite;
+        avatarImage.enabled = avatarSprite != null;
+        avatarImage.gameObject.SetActive(avatarSprite != null);
     }
 
     public void SetOwnedPropertySummary(string ownedSummary)
@@ -104,46 +94,6 @@ public class PlayerInfoItem : MonoBehaviour
 
     private void RefreshVisuals()
     {
-        Color highlightBackground = Color.Lerp(_accentColor, new Color(0.18f, 0.12f, 0.08f, 1f), 0.16f);
-        Color highlightTextColor = new Color(0.14f, 0.10f, 0.07f, 1f);
-
-        if (nameText != null)
-        {
-            nameText.color = !_alive
-                ? new Color(1f, 0.72f, 0.72f)
-                : (_highlighted ? highlightTextColor : Color.white);
-        }
-
-        if (moneyText != null)
-        {
-            moneyText.color = !_alive
-                ? new Color(1f, 0.76f, 0.76f)
-                : (_highlighted ? highlightTextColor : new Color(0.92f, 0.97f, 1f));
-        }
-
-        if (backgroundImage != null)
-        {
-            backgroundImage.color = !_alive
-                ? new Color(0.33f, 0.12f, 0.12f, 0.92f)
-                : (_highlighted ? highlightBackground : new Color(0.12f, 0.19f, 0.25f, 0.92f));
-        }
-
-        if (propertyCardBackground != null)
-        {
-            propertyCardBackground.color = !_alive
-                ? new Color(0.36f, 0.16f, 0.16f, 0.95f)
-                : (_highlighted
-                    ? Color.Lerp(_accentColor, Color.white, 0.16f)
-                    : Color.Lerp(_accentColor, new Color(0.08f, 0.11f, 0.15f, 1f), 0.58f));
-        }
-
-        if (propertyCardText != null)
-        {
-            propertyCardText.color = !_alive
-                ? new Color(1f, 0.84f, 0.84f)
-                : (_highlighted ? highlightTextColor : new Color(0.97f, 0.98f, 1f));
-        }
-
         RefreshTexts();
     }
 
@@ -151,7 +101,10 @@ public class PlayerInfoItem : MonoBehaviour
     {
         if (nameText != null)
         {
-            nameText.text = string.IsNullOrEmpty(_playerName) ? "\u89d2\u8272" : _playerName;
+            string displayName = string.IsNullOrEmpty(_playerName) ? "\u89d2\u8272" : _playerName;
+            nameText.text = string.IsNullOrEmpty(_controlTag)
+                ? displayName
+                : $"{displayName}({_controlTag})";
         }
 
         if (moneyText == null)
@@ -170,18 +123,7 @@ public class PlayerInfoItem : MonoBehaviour
         }
 
         string summary = NormalizePropertySummary(_ownedSummary);
-        string header = string.IsNullOrEmpty(_controlTag)
-            ? $"{_money}"
-            : $"{_controlTag} \u00b7 {_money}";
-
-        if (_highlighted)
-        {
-            moneyText.text = $"{header}\n\u5f53\u524d\u884c\u52a8";
-        }
-        else
-        {
-            moneyText.text = header;
-        }
+        moneyText.text = _money.ToString();
 
         if (propertyCardText != null)
         {

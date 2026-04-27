@@ -6,6 +6,28 @@ public class TileController : MonoBehaviour
 {
     private static readonly Color BorderColor = new Color(0.08f, 0.09f, 0.12f, 1f);
     private static readonly Color NameBadgeColor = new Color(1f, 0.985f, 0.94f, 0.92f);
+    private static readonly Color SignPostColor = new Color(0.40f, 0.25f, 0.12f, 1f);
+    private static readonly Color TileNamePaintColor = new Color(0.13f, 0.08f, 0.04f, 1f);
+    private static readonly string[] TileNameFallbackFontNames =
+    {
+        "Microsoft YaHei UI",
+        "Microsoft YaHei",
+        "SimHei",
+        "Noto Sans CJK SC",
+        "PingFang SC",
+        "Arial Unicode MS"
+    };
+    private const float OwnerSignEdgePadding = 0.045f;
+    private const float OwnerSignPanelWidth = 0.56f;
+    private const float OwnerSignPanelHeight = 0.24f;
+    private const float OwnerSignPanelThickness = 0.035f;
+    private const float OwnerSignTextBaseCharacterSize = 0.04f;
+    private const int OwnerSignTextFontSize = 128;
+    private const float TileNameSurfaceOffset = 0.035f;
+    private const float TileNameTextBaseCharacterSize = 0.015f;
+    private const int TileNameTextFontSize = 128;
+    private const int SignSortingOrder = 260;
+    private const int TileNameSortingOrder = 240;
     private static readonly string[] StyledRendererPaths =
     {
         "BaseFrame",
@@ -31,6 +53,8 @@ public class TileController : MonoBehaviour
 
     private static Shader tileShader;
     private static Font labelFont;
+    private static Font tileNameFont;
+    private static Font tileNameFallbackFont;
 
     public TileData tileData;
     public Text gridText;
@@ -42,7 +66,9 @@ public class TileController : MonoBehaviour
     public RectTransform ownerSignRoot;
     public Image ownerBadge;
     public Text ownerText;
-    [SerializeField] private bool useTileModels = false;
+    public RectTransform tileNameRoot;
+    public Text tileNameText;
+    [SerializeField] private bool useTileModels = true;
 
     public bool hasUpgraded;
 
@@ -50,6 +76,10 @@ public class TileController : MonoBehaviour
     private readonly Dictionary<Renderer, Material> runtimeMaterials = new Dictionary<Renderer, Material>();
 
     private GameObject currentModelInstance;
+    private GameObject ownerSignObject;
+    private Renderer ownerSignPanelRenderer;
+    private TextMesh ownerSignFrontTextMesh;
+    private TextMesh tileNameTextMesh;
     private Vector3 modelBaseInitialLocalPosition;
     private bool visualsCached;
 
@@ -72,6 +102,7 @@ public class TileController : MonoBehaviour
         ResetModelBasePosition();
         ClearCurrentModel();
         EnsureLabelFont();
+        EnsureRuntimeLabels();
         ApplyLabelVisuals();
         SetOwnerSign(string.Empty, Color.white, false);
 
@@ -212,10 +243,57 @@ public class TileController : MonoBehaviour
             ownerText.verticalOverflow = VerticalWrapMode.Overflow;
             ownerText.alignment = TextAnchor.MiddleCenter;
         }
+
+        if (tileNameTextMesh != null)
+        {
+            string tileLabel = tileData != null ? FormatTileNameLabel(tileData.tileName) : string.Empty;
+            Font resolvedTileNameFont = ResolveTileNameFont(tileLabel);
+            tileNameTextMesh.font = resolvedTileNameFont;
+            tileNameTextMesh.text = tileLabel;
+            tileNameTextMesh.color = TileNamePaintColor;
+            tileNameTextMesh.fontStyle = FontStyle.Bold;
+            tileNameTextMesh.fontSize = TileNameTextFontSize;
+            tileNameTextMesh.characterSize = TileNameTextBaseCharacterSize;
+            tileNameTextMesh.lineSpacing = 0.82f;
+            tileNameTextMesh.anchor = TextAnchor.MiddleCenter;
+            tileNameTextMesh.alignment = TextAlignment.Center;
+            tileNameTextMesh.richText = false;
+
+            if (resolvedTileNameFont != null && !string.IsNullOrEmpty(tileLabel))
+            {
+                resolvedTileNameFont.RequestCharactersInTexture(tileLabel, TileNameTextFontSize, FontStyle.Bold);
+            }
+
+            MeshRenderer textRenderer = tileNameTextMesh.GetComponent<MeshRenderer>();
+            if (textRenderer != null)
+            {
+                if (resolvedTileNameFont != null && resolvedTileNameFont.material != null)
+                {
+                    textRenderer.sharedMaterial = resolvedTileNameFont.material;
+                }
+
+                textRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                textRenderer.receiveShadows = false;
+                textRenderer.sortingOrder = TileNameSortingOrder;
+            }
+
+            ApplyUniformTileNameTextMesh(tileNameTextMesh);
+        }
+
+        if (tileNameTextMesh != null)
+        {
+            bool hasName = tileData != null && !string.IsNullOrWhiteSpace(tileData.tileName);
+            tileNameTextMesh.gameObject.SetActive(hasName);
+        }
     }
 
     public void SetOwnerSign(string ownerName, Color ownerColor, bool visible)
     {
+        if (ownerSignObject != null)
+        {
+            ownerSignObject.SetActive(visible);
+        }
+
         if (ownerSignRoot != null)
         {
             ownerSignRoot.gameObject.SetActive(visible);
@@ -230,6 +308,7 @@ public class TileController : MonoBehaviour
         Color plaqueColor = Color.Lerp(ownerColor, BorderColor, 0.28f);
         plaqueColor.a = 1f;
         SetRendererColor("FrontPlaque", plaqueColor);
+        SetRendererColor(ownerSignPanelRenderer, plaqueColor);
 
         if (ownerBadge != null)
         {
@@ -243,20 +322,96 @@ public class TileController : MonoBehaviour
             ownerText.text = FormatOwnerLabel(ownerName);
             ownerText.color = GetReadableTextColor(ownerColor);
         }
+
+        string signText = FormatOwnerLabel(ownerName);
+        Color signTextColor = GetReadableTextColor(ownerColor);
+        if (labelFont != null && !string.IsNullOrEmpty(signText))
+        {
+            labelFont.RequestCharactersInTexture(signText, 128, FontStyle.Bold);
+        }
+
+        if (ownerSignFrontTextMesh != null)
+        {
+            ownerSignFrontTextMesh.text = signText;
+            ownerSignFrontTextMesh.color = signTextColor;
+            FitOwnerSignTextMesh(ownerSignFrontTextMesh);
+        }
     }
 
     private static void EnsureLabelFont()
     {
-        if (labelFont != null)
+        if (labelFont != null && tileNameFont != null)
         {
             return;
         }
 
-        labelFont = Resources.Load<Font>("Fonts/MenuFont");
         if (labelFont == null)
         {
-            labelFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            labelFont = Resources.Load<Font>("Fonts/MenuFont");
+            if (labelFont == null)
+            {
+                labelFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            }
         }
+
+        if (tileNameFont == null)
+        {
+            tileNameFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (tileNameFont == null)
+            {
+                tileNameFont = labelFont;
+            }
+        }
+    }
+
+    private static Font ResolveTileNameFont(string text)
+    {
+        Font defaultFont = tileNameFont != null ? tileNameFont : labelFont;
+        if (SupportsText(defaultFont, text))
+        {
+            return defaultFont;
+        }
+
+        if (tileNameFallbackFont == null)
+        {
+            tileNameFallbackFont = Font.CreateDynamicFontFromOSFont(TileNameFallbackFontNames, 64);
+        }
+
+        if (SupportsText(tileNameFallbackFont, text))
+        {
+            return tileNameFallbackFont;
+        }
+
+        return defaultFont;
+    }
+
+    private static bool SupportsText(Font font, string text)
+    {
+        if (font == null)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(text))
+        {
+            return true;
+        }
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (char.IsWhiteSpace(c))
+            {
+                continue;
+            }
+
+            if (!font.HasCharacter(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private GameObject LoadTileModelPrefab(string tileName)
@@ -293,6 +448,432 @@ public class TileController : MonoBehaviour
         }
 
         return null;
+    }
+
+    private void EnsureRuntimeLabels()
+    {
+        DestroyGeneratedRuntimeLabels();
+        Bounds tileBounds = GetTileVisualLocalBounds();
+
+        if (ownerSignObject == null)
+        {
+            CreateOwnerEdgeSign(
+                tileBounds,
+                new Color(0.25f, 0.56f, 0.34f, 0.97f));
+        }
+
+        if (tileNameTextMesh == null)
+        {
+            tileNameTextMesh = CreateTileNameLabel(tileBounds);
+        }
+    }
+
+    private TextMesh CreateTileNameLabel(Bounds tileBounds)
+    {
+        Transform labelParent = GetOrCreateRuntimeSignParent();
+
+        GameObject textObject = new GameObject("TileNameLabel", typeof(TextMesh));
+        textObject.transform.SetParent(labelParent, false);
+        textObject.transform.localPosition = new Vector3(tileBounds.center.x, tileBounds.max.y + TileNameSurfaceOffset, tileBounds.center.z);
+        textObject.transform.localRotation = GetTileNameLabelRotation();
+        textObject.transform.localScale = Vector3.one;
+
+        TextMesh label = textObject.GetComponent<TextMesh>();
+        label.text = string.Empty;
+        label.anchor = TextAnchor.MiddleCenter;
+        label.alignment = TextAlignment.Center;
+        label.richText = false;
+        return label;
+    }
+
+    private void CreateOwnerEdgeSign(Bounds tileBounds, Color badgeColor)
+    {
+        Transform signParent = GetOrCreateRuntimeSignParent();
+        Vector3 outward = GetOutwardLocalDirection(tileBounds);
+        Vector3 edgePosition = GetBoundsEdgePoint(tileBounds, outward) + outward * OwnerSignEdgePadding;
+        float tileTopY = Mathf.Max(0.02f, tileBounds.max.y);
+        float panelCenterY = tileTopY + OwnerSignPanelHeight * 0.72f;
+
+        ownerSignObject = new GameObject("OwnerSign");
+        ownerSignObject.transform.SetParent(signParent, false);
+        ownerSignObject.transform.localPosition = new Vector3(edgePosition.x, 0f, edgePosition.z);
+        ownerSignObject.transform.localRotation = Quaternion.LookRotation(-outward, Vector3.up);
+        ownerSignObject.transform.localScale = Vector3.one;
+
+        Renderer leftPost = CreateColorCube(
+            "LeftPost",
+            ownerSignObject.transform,
+            new Vector3(-OwnerSignPanelWidth * 0.32f, panelCenterY * 0.52f, 0f),
+            new Vector3(0.035f, panelCenterY * 1.04f, 0.035f),
+            SignPostColor);
+        Renderer rightPost = CreateColorCube(
+            "RightPost",
+            ownerSignObject.transform,
+            new Vector3(OwnerSignPanelWidth * 0.32f, panelCenterY * 0.52f, 0f),
+            new Vector3(0.035f, panelCenterY * 1.04f, 0.035f),
+            SignPostColor);
+        ownerSignPanelRenderer = CreateColorCube(
+            "Panel",
+            ownerSignObject.transform,
+            new Vector3(0f, panelCenterY, 0f),
+            new Vector3(OwnerSignPanelWidth, OwnerSignPanelHeight, OwnerSignPanelThickness),
+            badgeColor);
+
+        if (leftPost != null)
+        {
+            leftPost.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+
+        if (rightPost != null)
+        {
+            rightPost.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+
+        float textSide = GetCameraFacingLocalZSide(ownerSignObject.transform);
+        Quaternion textRotation = textSide >= 0f ? Quaternion.Euler(0f, 180f, 0f) : Quaternion.identity;
+        ownerSignFrontTextMesh = CreateOwnerSignTextMesh(
+            ownerSignObject.transform,
+            "Text",
+            new Vector3(0f, panelCenterY, OwnerSignPanelThickness * 1.08f * textSide),
+            textRotation);
+    }
+
+    private TextMesh CreateOwnerSignTextMesh(Transform parent, string objectName, Vector3 localPosition, Quaternion localRotation)
+    {
+        GameObject textObject = new GameObject(objectName, typeof(TextMesh));
+        textObject.transform.SetParent(parent, false);
+        textObject.transform.localPosition = localPosition;
+        textObject.transform.localRotation = localRotation;
+        textObject.transform.localScale = Vector3.one;
+
+        TextMesh textMesh = textObject.GetComponent<TextMesh>();
+        textMesh.font = labelFont;
+        textMesh.text = string.Empty;
+        textMesh.anchor = TextAnchor.MiddleCenter;
+        textMesh.alignment = TextAlignment.Center;
+        textMesh.fontStyle = FontStyle.Bold;
+        textMesh.fontSize = OwnerSignTextFontSize;
+        textMesh.characterSize = OwnerSignTextBaseCharacterSize;
+        textMesh.lineSpacing = 0.82f;
+        textMesh.richText = false;
+
+        MeshRenderer textRenderer = textObject.GetComponent<MeshRenderer>();
+        if (textRenderer != null)
+        {
+            if (labelFont != null && labelFont.material != null)
+            {
+                textRenderer.sharedMaterial = labelFont.material;
+            }
+
+            textRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            textRenderer.receiveShadows = false;
+            textRenderer.sortingOrder = SignSortingOrder;
+        }
+
+        return textMesh;
+    }
+
+    private void FitOwnerSignTextMesh(TextMesh textMesh)
+    {
+        if (textMesh == null || string.IsNullOrEmpty(textMesh.text))
+        {
+            return;
+        }
+
+        textMesh.characterSize = OwnerSignTextBaseCharacterSize;
+
+        MeshRenderer textRenderer = textMesh.GetComponent<MeshRenderer>();
+        if (textRenderer == null)
+        {
+            return;
+        }
+
+        Bounds bounds = textRenderer.localBounds;
+        float width = bounds.size.x;
+        float height = bounds.size.y;
+        if (width <= 0.0001f || height <= 0.0001f)
+        {
+            return;
+        }
+
+        float maxWidth = OwnerSignPanelWidth * 0.78f;
+        float maxHeight = OwnerSignPanelHeight * 0.58f;
+        float scale = Mathf.Min(maxWidth / width, maxHeight / height, 1f);
+        textMesh.characterSize *= Mathf.Clamp(scale, 0.01f, 1f);
+    }
+
+    private void ApplyUniformTileNameTextMesh(TextMesh textMesh)
+    {
+        if (textMesh == null)
+        {
+            return;
+        }
+
+        textMesh.characterSize = TileNameTextBaseCharacterSize;
+    }
+
+    private void DestroyGeneratedRuntimeLabels()
+    {
+        Transform runtimeSigns = transform.Find("RuntimeSigns");
+        if (runtimeSigns == null)
+        {
+            return;
+        }
+
+        DestroyRuntimeChild(runtimeSigns, "OwnerSign");
+        DestroyRuntimeChild(runtimeSigns, "LandmarkSign");
+        DestroyRuntimeChild(runtimeSigns, "TileNameLabel");
+
+        ownerSignObject = null;
+        ownerSignPanelRenderer = null;
+        ownerSignFrontTextMesh = null;
+        ownerSignRoot = null;
+        ownerBadge = null;
+        ownerText = null;
+        tileNameRoot = null;
+        tileNameText = null;
+        tileNameTextMesh = null;
+
+        if (modelText != null && modelText.transform.IsChildOf(runtimeSigns))
+        {
+            modelText = null;
+        }
+    }
+
+    private void DestroyRuntimeChild(Transform parent, string childName)
+    {
+        Transform child = parent.Find(childName);
+        if (child == null)
+        {
+            return;
+        }
+
+        if (Application.isPlaying)
+        {
+            Destroy(child.gameObject);
+        }
+        else
+        {
+            DestroyImmediate(child.gameObject);
+        }
+    }
+
+    private Bounds GetTileVisualLocalBounds()
+    {
+        Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
+        Bounds localBounds = new Bounds(Vector3.zero, Vector3.zero);
+        bool hasBounds = false;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null || IsRuntimeGeneratedTransform(renderer.transform))
+            {
+                continue;
+            }
+
+            if (currentModelInstance != null && renderer.transform.IsChildOf(currentModelInstance.transform))
+            {
+                continue;
+            }
+
+            Bounds worldBounds = renderer.bounds;
+            for (int x = 0; x <= 1; x++)
+            {
+                for (int y = 0; y <= 1; y++)
+                {
+                    for (int z = 0; z <= 1; z++)
+                    {
+                        Vector3 worldCorner = new Vector3(
+                            x == 0 ? worldBounds.min.x : worldBounds.max.x,
+                            y == 0 ? worldBounds.min.y : worldBounds.max.y,
+                            z == 0 ? worldBounds.min.z : worldBounds.max.z);
+                        Vector3 localCorner = transform.InverseTransformPoint(worldCorner);
+
+                        if (!hasBounds)
+                        {
+                            localBounds = new Bounds(localCorner, Vector3.zero);
+                            hasBounds = true;
+                        }
+                        else
+                        {
+                            localBounds.Encapsulate(localCorner);
+                        }
+                    }
+                }
+            }
+        }
+
+        return hasBounds ? localBounds : new Bounds(Vector3.zero, new Vector3(1f, 0.2f, 1f));
+    }
+
+    private bool IsRuntimeGeneratedTransform(Transform target)
+    {
+        Transform runtimeSigns = transform.Find("RuntimeSigns");
+        return runtimeSigns != null && target != null && target.IsChildOf(runtimeSigns);
+    }
+
+    private Quaternion GetTileNameLabelRotation()
+    {
+        Vector3 localForward = transform.InverseTransformDirection(Vector3.up);
+        Vector3 localUp = transform.InverseTransformDirection(Vector3.forward);
+
+        if (localUp.sqrMagnitude < 0.0001f)
+        {
+            localUp = Vector3.forward;
+        }
+
+        return Quaternion.LookRotation(localForward.normalized, -localUp.normalized) * Quaternion.Euler(0f, 180f, 180f);
+    }
+
+    private static float GetCameraFacingLocalZSide(Transform ownerSignTransform)
+    {
+        if (ownerSignTransform == null)
+        {
+            return -1f;
+        }
+
+        Camera cameraToUse = Camera.main;
+        if (cameraToUse == null)
+        {
+            return -1f;
+        }
+
+        Vector3 localCameraPosition = ownerSignTransform.InverseTransformPoint(cameraToUse.transform.position);
+        return localCameraPosition.z >= 0f ? 1f : -1f;
+    }
+
+    private Vector3 GetOutwardLocalDirection(Bounds tileBounds)
+    {
+        Transform mapRoot = transform.parent != null ? transform.parent.parent : null;
+        Vector3 mapCenter = GetMapCenterWorld(mapRoot);
+        Vector3 worldTileCenter = transform.parent != null ? transform.parent.position : transform.TransformPoint(tileBounds.center);
+        Vector3 worldDirection = worldTileCenter - mapCenter;
+        worldDirection.y = 0f;
+
+        if (worldDirection.sqrMagnitude < 0.0001f)
+        {
+            worldDirection = -transform.forward;
+        }
+
+        Vector3 localDirection = transform.InverseTransformDirection(worldDirection.normalized);
+        localDirection.y = 0f;
+
+        if (localDirection.sqrMagnitude < 0.0001f)
+        {
+            return Vector3.back;
+        }
+
+        if (Mathf.Abs(localDirection.x) >= Mathf.Abs(localDirection.z))
+        {
+            return localDirection.x >= 0f ? Vector3.right : Vector3.left;
+        }
+
+        return localDirection.z >= 0f ? Vector3.forward : Vector3.back;
+    }
+
+    private static Vector3 GetBoundsEdgePoint(Bounds bounds, Vector3 direction)
+    {
+        Vector3 center = bounds.center;
+        direction.y = 0f;
+
+        if (direction.sqrMagnitude < 0.0001f)
+        {
+            return new Vector3(center.x, 0f, bounds.min.z);
+        }
+
+        direction.Normalize();
+
+        if (Mathf.Abs(direction.x) >= Mathf.Abs(direction.z))
+        {
+            return new Vector3(direction.x >= 0f ? bounds.max.x : bounds.min.x, 0f, center.z);
+        }
+
+        return new Vector3(center.x, 0f, direction.z >= 0f ? bounds.max.z : bounds.min.z);
+    }
+
+    private static Vector3 GetMapCenterWorld(Transform mapRoot)
+    {
+        if (mapRoot == null || mapRoot.childCount == 0)
+        {
+            return mapRoot != null ? mapRoot.position : Vector3.zero;
+        }
+
+        Vector3 center = Vector3.zero;
+        int count = 0;
+        for (int i = 0; i < mapRoot.childCount; i++)
+        {
+            Transform child = mapRoot.GetChild(i);
+            if (child == null)
+            {
+                continue;
+            }
+
+            center += child.position;
+            count++;
+        }
+
+        return count > 0 ? center / count : mapRoot.position;
+    }
+
+    private Renderer CreateColorCube(string objectName, Transform parent, Vector3 localPosition, Vector3 localScale, Color color)
+    {
+        GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        cube.name = objectName;
+        cube.transform.SetParent(parent, false);
+        cube.transform.localPosition = localPosition;
+        cube.transform.localRotation = Quaternion.identity;
+        cube.transform.localScale = localScale;
+
+        Collider collider = cube.GetComponent<Collider>();
+        if (collider != null)
+        {
+            if (Application.isPlaying)
+            {
+                Destroy(collider);
+            }
+            else
+            {
+                DestroyImmediate(collider);
+            }
+        }
+
+        Renderer renderer = cube.GetComponent<Renderer>();
+        SetRendererColor(renderer, color);
+        return renderer;
+    }
+
+    private Transform GetOrCreateRuntimeSignParent()
+    {
+        Transform existing = transform.Find("RuntimeSigns");
+        if (existing != null)
+        {
+            return existing;
+        }
+
+        GameObject parentObject = new GameObject("RuntimeSigns");
+        parentObject.transform.SetParent(transform, false);
+        parentObject.transform.localPosition = Vector3.zero;
+        parentObject.transform.localRotation = Quaternion.identity;
+        parentObject.transform.localScale = Vector3.one;
+        return parentObject.transform;
+    }
+
+    private void CreateSignPost(RectTransform parent, Vector2 anchoredPosition)
+    {
+        GameObject postObject = new GameObject("Post", typeof(RectTransform), typeof(Image));
+        postObject.transform.SetParent(parent, false);
+
+        RectTransform postRect = postObject.GetComponent<RectTransform>();
+        postRect.anchorMin = new Vector2(0.5f, 0.5f);
+        postRect.anchorMax = new Vector2(0.5f, 0.5f);
+        postRect.pivot = new Vector2(0.5f, 1f);
+        postRect.anchoredPosition = anchoredPosition;
+        postRect.sizeDelta = new Vector2(7f, 26f);
+
+        Image postImage = postObject.GetComponent<Image>();
+        postImage.color = SignPostColor;
+        postImage.raycastTarget = false;
     }
 
     private void CacheVisualParts()
@@ -353,6 +934,16 @@ public class TileController : MonoBehaviour
     private void SetRendererColor(string path, Color color)
     {
         if (!tileRenderers.TryGetValue(path, out Renderer renderer) || renderer == null)
+        {
+            return;
+        }
+
+        SetRendererColor(renderer, color);
+    }
+
+    private void SetRendererColor(Renderer renderer, Color color)
+    {
+        if (renderer == null)
         {
             return;
         }
@@ -478,6 +1069,30 @@ public class TileController : MonoBehaviour
 
         int firstLineLength = Mathf.Min(4, rawName.Length - 1);
         return rawName.Substring(0, firstLineLength) + "\n" + rawName.Substring(firstLineLength);
+    }
+
+    private static string FormatTileNameLabel(string rawName)
+    {
+        if (string.IsNullOrWhiteSpace(rawName))
+        {
+            return string.Empty;
+        }
+
+        string compactName = rawName.Trim();
+        if (compactName.Contains("\n") || compactName.Length <= 4)
+        {
+            return compactName;
+        }
+
+        int lineLength = compactName.Length <= 6 ? 3 : 4;
+        List<string> lines = new List<string>();
+        for (int i = 0; i < compactName.Length; i += lineLength)
+        {
+            int count = Mathf.Min(lineLength, compactName.Length - i);
+            lines.Add(compactName.Substring(i, count));
+        }
+
+        return string.Join("\n", lines);
     }
 
     private static string FormatOwnerLabel(string ownerName)

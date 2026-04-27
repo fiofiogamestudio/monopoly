@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 
 public class UIManager : MonoBehaviour
@@ -20,6 +21,8 @@ public class UIManager : MonoBehaviour
     public RectTransform actionPanel;
     public RectTransform playerPanel;
     public RectTransform playerHudRoot;
+    [FormerlySerializedAs("playerInfoItemPrefab")]
+    public PlayerInfoItem playerCardPrefab;
     public List<PlayerInfoItem> playerInfoItems = new List<PlayerInfoItem>();
     public Text logText;
     public RectTransform logPanel;
@@ -38,6 +41,12 @@ public class UIManager : MonoBehaviour
     public Text noticeBodyText;
     public Button noticeConfirmButton;
 
+    [Header("Player Card Layout")]
+    [FormerlySerializedAs("playerHudItemSpacing")]
+    public float playerCardSpacing = 18f;
+    public float playerCardScale = 1f;
+    public Vector2 playerCardOffset = Vector2.zero;
+
     [Header("Runtime")]
     public int maxLogLines = 16;
     public bool hookUnityLogs = true;
@@ -49,8 +58,12 @@ public class UIManager : MonoBehaviour
     private readonly List<Button> questionButtons = new List<Button>();
     private readonly List<string> logLines = new List<string>();
     private readonly List<Text> handCardTexts = new List<Text>();
+    private readonly List<Image> handCardImages = new List<Image>();
     private readonly List<Button> handCardUseButtons = new List<Button>();
     private readonly List<Image> handCardSelectionFrames = new List<Image>();
+    private readonly List<HandCardView> handCardViews = new List<HandCardView>();
+    private readonly Dictionary<string, Sprite> cardSpritesByName = new Dictionary<string, Sprite>();
+    private readonly Dictionary<RoleId, Sprite> roleAvatarSprites = new Dictionary<RoleId, Sprite>();
     private readonly Dictionary<int, int> moneyDisplayOverrides = new Dictionary<int, int>();
     private readonly Dictionary<int, int> moneyPendingTargets = new Dictionary<int, int>();
     private readonly Dictionary<int, Queue<MoneyChangeFxRequest>> moneyFxQueues = new Dictionary<int, Queue<MoneyChangeFxRequest>>();
@@ -66,6 +79,29 @@ public class UIManager : MonoBehaviour
     private RectTransform rootCanvasRect;
     private Font feedbackFont;
     private GameObject moneyFxPrefab;
+    private bool cardSpritesLoaded;
+    private Image noticeCardImage;
+    private HandPanelLayout handPanelLayout;
+    private RectTransform handCardDialogOverlay;
+    private Text handCardDialogTitleText;
+    private Text handCardDialogBodyText;
+    private Image handCardDialogImage;
+    private Button handCardDialogUseButton;
+    private Button handCardDialogCancelButton;
+    private int pendingHandCardIndex = -1;
+    private bool noticeBodyLayoutCaptured;
+    private Vector2 noticeBodyAnchorMin;
+    private Vector2 noticeBodyAnchorMax;
+    private Vector2 noticeBodyAnchoredPosition;
+    private Vector2 noticeBodySizeDelta;
+    private Vector2 noticeBodyPivot;
+
+    private static readonly Vector2 DialogPanelSize = new Vector2(880f, 620f);
+    private static readonly Vector2 QuestionOptionButtonSize = new Vector2(232f, 48f);
+    private static readonly Vector2 NoticeButtonSize = new Vector2(180f, 52f);
+    private static readonly Vector2 HandDialogButtonSize = new Vector2(168f, 52f);
+    private static readonly Vector2 PlayerHudItemFallbackSize = new Vector2(220f, 100f);
+    private const string PlayerCardPrefabPath = "Prefabs/UI/PlayerCard";
 
     private sealed class MoneyChangeFxRequest
     {
@@ -95,6 +131,10 @@ public class UIManager : MonoBehaviour
             return;
         }
 
+#if UNITY_EDITOR
+        HandleEditorHandCardShortcut();
+        HandleEditorQuestionShortcut();
+#endif
         UpdateTopInfo();
         UpdatePropertyInfoPanel();
         UpdateButtons();
@@ -208,7 +248,19 @@ public class UIManager : MonoBehaviour
             }
         }
 
+        SetNoticeCardVisual(null);
         noticeOverlay.gameObject.SetActive(true);
+    }
+
+    public void ShowCardNotice(string title, CardData card, string buttonText = "\u7ee7\u7eed", Action onConfirm = null)
+    {
+        string cardTitle = string.IsNullOrEmpty(title) ? "\u62bd\u5230\u5361\u724c" : title;
+        string body = card == null
+            ? string.Empty
+            : $"<b>{card.cardName}</b>\n\n{card.description}";
+
+        ShowNotice(cardTitle, body, buttonText, onConfirm);
+        SetNoticeCardVisual(GetCardSprite(card));
     }
 
     public void QueueMoneyChange(int playerIndex, int oldMoney, int newMoney, int delta, Vector3 worldStart)
@@ -253,6 +305,7 @@ public class UIManager : MonoBehaviour
 
     public void HideNotice()
     {
+        SetNoticeCardVisual(null);
         if (noticeOverlay != null)
         {
             noticeOverlay.gameObject.SetActive(false);
@@ -273,11 +326,14 @@ public class UIManager : MonoBehaviour
             gameManager = FindObjectOfType<GameManager>();
         }
 
-        CacheSceneCollections();
         CacheCanvasRefs();
+        EnsureHandPanelLayout();
+        CacheSceneCollections();
+        ConfigureSceneDialogLayouts();
         BindSceneDialogs();
         BindRuntimeCallbacks();
         InitPlayerHud();
+        EnsureHandCardDialog();
 
         if (hookUnityLogs && !subscribedToLogs)
         {
@@ -293,6 +349,11 @@ public class UIManager : MonoBehaviour
         if (noticeOverlay != null)
         {
             noticeOverlay.gameObject.SetActive(false);
+        }
+
+        if (handCardDialogOverlay != null)
+        {
+            handCardDialogOverlay.gameObject.SetActive(false);
         }
 
         SetDebugLogPanelVisible(false);
@@ -343,6 +404,261 @@ public class UIManager : MonoBehaviour
         }
     }
 
+    private void EnsureHandCardDialog()
+    {
+        if (handCardDialogOverlay != null || rootCanvasRect == null)
+        {
+            return;
+        }
+
+        GameObject overlayObject = new GameObject("HandCardUseDialog", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        overlayObject.layer = rootCanvasRect.gameObject.layer;
+        overlayObject.transform.SetParent(rootCanvasRect, false);
+        handCardDialogOverlay = overlayObject.GetComponent<RectTransform>();
+        SetDialogStretch(handCardDialogOverlay, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        Image overlayImage = overlayObject.GetComponent<Image>();
+        overlayImage.color = new Color(0f, 0f, 0f, 0.45f);
+        overlayImage.raycastTarget = true;
+
+        RectTransform panelRect = CreateDialogRect("Panel", handCardDialogOverlay);
+        panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+        panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRect.pivot = new Vector2(0.5f, 0.5f);
+        panelRect.anchoredPosition = Vector2.zero;
+        panelRect.sizeDelta = DialogPanelSize;
+
+        Image panelImage = panelRect.gameObject.AddComponent<Image>();
+        Sprite panelSprite = GetQuestionPanelSprite();
+        ConfigureDialogImage(panelImage, new Color(0.98f, 0.91f, 0.76f, 1f), panelSprite);
+
+        if (panelSprite == null)
+        {
+            Outline panelOutline = panelRect.gameObject.AddComponent<Outline>();
+            panelOutline.effectColor = new Color(0.25f, 0.15f, 0.08f, 0.65f);
+            panelOutline.effectDistance = new Vector2(2f, -2f);
+        }
+
+        handCardDialogTitleText = CreateDialogText("Title", panelRect, string.Empty, 26, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.31f, 0.17f, 0.09f, 1f));
+        SetCenteredRect(handCardDialogTitleText.rectTransform, new Vector2(0f, 214f), new Vector2(360f, 48f));
+
+        RectTransform previewBackRect = CreateDialogRect("CardPreviewBack", panelRect);
+        SetCenteredRect(previewBackRect, new Vector2(-125f, 5f), new Vector2(194f, 194f));
+
+        Image previewBackImage = previewBackRect.gameObject.AddComponent<Image>();
+        ConfigureDialogImage(previewBackImage, new Color(0.16f, 0.22f, 0.13f, 1f));
+
+        GameObject imageObject = new GameObject("CardImage", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        imageObject.layer = panelRect.gameObject.layer;
+        imageObject.transform.SetParent(panelRect, false);
+        handCardDialogImage = imageObject.GetComponent<Image>();
+        handCardDialogImage.preserveAspect = true;
+        handCardDialogImage.raycastTarget = false;
+        RectTransform imageRect = handCardDialogImage.rectTransform;
+        SetCenteredRect(imageRect, new Vector2(-125f, 5f), new Vector2(178f, 178f));
+
+        handCardDialogBodyText = CreateDialogText("Effect", panelRect, string.Empty, 22, FontStyle.Normal, TextAnchor.MiddleLeft, new Color(0.31f, 0.17f, 0.09f, 1f));
+        RectTransform bodyRect = handCardDialogBodyText.rectTransform;
+        SetCenteredRect(bodyRect, new Vector2(120f, 10f), new Vector2(250f, 210f));
+        handCardDialogBodyText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        handCardDialogBodyText.verticalOverflow = VerticalWrapMode.Truncate;
+
+        handCardDialogUseButton = CreateDialogButton("UseButton", panelRect, "\u4f7f\u7528", new Color(0.24f, 0.58f, 0.33f, 1f), new Vector2(-98f, 94f), HandDialogButtonSize);
+        handCardDialogCancelButton = CreateDialogButton("CancelButton", panelRect, "\u53d6\u6d88", new Color(0.62f, 0.52f, 0.42f, 1f), new Vector2(98f, 94f), HandDialogButtonSize);
+
+        handCardDialogOverlay.gameObject.SetActive(false);
+    }
+
+    private RectTransform CreateDialogRect(string objectName, Transform parent)
+    {
+        GameObject rectObject = new GameObject(objectName, typeof(RectTransform), typeof(CanvasRenderer));
+        rectObject.layer = parent.gameObject.layer;
+        rectObject.transform.SetParent(parent, false);
+        return rectObject.GetComponent<RectTransform>();
+    }
+
+    private Text CreateDialogText(string objectName, Transform parent, string text, int fontSize, FontStyle fontStyle, TextAnchor alignment, Color color)
+    {
+        GameObject textObject = new GameObject(objectName, typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
+        textObject.layer = parent.gameObject.layer;
+        textObject.transform.SetParent(parent, false);
+
+        Text uiText = textObject.GetComponent<Text>();
+        uiText.font = feedbackFont != null ? feedbackFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        uiText.text = text;
+        uiText.fontSize = fontSize;
+        uiText.fontStyle = fontStyle;
+        uiText.alignment = alignment;
+        uiText.color = color;
+        uiText.raycastTarget = false;
+        uiText.resizeTextForBestFit = true;
+        uiText.resizeTextMinSize = 10;
+        uiText.resizeTextMaxSize = fontSize;
+        uiText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        uiText.verticalOverflow = VerticalWrapMode.Truncate;
+        return uiText;
+    }
+
+    private Button CreateDialogButton(string objectName, Transform parent, string label, Color color, Vector2 anchoredPosition, Vector2 size)
+    {
+        GameObject buttonObject = new GameObject(objectName, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+        buttonObject.layer = parent.gameObject.layer;
+        buttonObject.transform.SetParent(parent, false);
+
+        RectTransform rect = buttonObject.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0f);
+        rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.pivot = new Vector2(0.5f, 0f);
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = size;
+
+        Image image = buttonObject.GetComponent<Image>();
+        ConfigureDialogImage(image, color, GetQuestionButtonSprite(), Image.Type.Sliced);
+
+        Button button = buttonObject.GetComponent<Button>();
+        button.targetGraphic = image;
+        ColorBlock colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = Color.white;
+        colors.pressedColor = new Color(0.85f, 0.85f, 0.85f, 1f);
+        colors.selectedColor = Color.white;
+        colors.disabledColor = new Color(1f, 1f, 1f, 0.45f);
+        colors.colorMultiplier = 1f;
+        button.colors = colors;
+
+        Text text = CreateDialogText("Text", buttonObject.transform, label, 18, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+        SetDialogStretch(text.rectTransform, Vector2.zero, Vector2.one, new Vector2(0f, 3f), new Vector2(0f, 3f));
+        return button;
+    }
+
+    private Sprite GetQuestionPanelSprite()
+    {
+        if (questionOverlay == null)
+        {
+            return null;
+        }
+
+        Transform cardTransform = questionOverlay.Find("QuestionCard");
+        Image image = cardTransform != null ? cardTransform.GetComponent<Image>() : null;
+        return image != null ? image.sprite : null;
+    }
+
+    private Sprite GetQuestionButtonSprite()
+    {
+        for (int i = 0; i < questionButtons.Count; i++)
+        {
+            Button button = questionButtons[i];
+            Sprite sprite = GetButtonSprite(button);
+            if (sprite != null)
+            {
+                return sprite;
+            }
+        }
+
+        return GetButtonSprite(noticeConfirmButton);
+    }
+
+    private Sprite GetButtonSprite(Button button)
+    {
+        if (button == null)
+        {
+            return null;
+        }
+
+        Image image = button.targetGraphic as Image;
+        if (image == null)
+        {
+            image = button.GetComponent<Image>();
+        }
+
+        return image != null ? image.sprite : null;
+    }
+
+    private void ConfigureDialogImage(Image image, Color fallbackColor, Sprite sprite = null, Image.Type imageType = Image.Type.Simple)
+    {
+        image.color = sprite != null ? Color.white : fallbackColor;
+        image.raycastTarget = true;
+        image.sprite = sprite;
+        image.type = imageType;
+        image.fillCenter = true;
+    }
+
+    private void SetDialogStretch(RectTransform rect, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
+    {
+        rect.anchorMin = anchorMin;
+        rect.anchorMax = anchorMax;
+        rect.offsetMin = offsetMin;
+        rect.offsetMax = offsetMax;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.localScale = Vector3.one;
+    }
+
+    private void EnsureHandPanelLayout()
+    {
+        if (handPanelLayout != null && handPanelLayout.gameObject != null)
+        {
+            SyncHandPanelSlotCount();
+            handPanel = handPanelLayout.GetComponent<RectTransform>();
+            handBodyRoot = handPanelLayout.BodyRoot;
+            return;
+        }
+
+        HandPanelLayout existingLayout = handPanel != null ? handPanel.GetComponent<HandPanelLayout>() : null;
+        if (existingLayout == null)
+        {
+            GameObject handPanelPrefab = Resources.Load<GameObject>("Prefabs/UI/HandPanel");
+            HandPanelLayout prefabLayout = handPanelPrefab != null ? handPanelPrefab.GetComponent<HandPanelLayout>() : null;
+            if (prefabLayout != null)
+            {
+                Transform parent = handPanel != null && handPanel.parent != null
+                    ? handPanel.parent
+                    : (rootCanvasRect != null ? rootCanvasRect : null);
+                int siblingIndex = handPanel != null ? handPanel.GetSiblingIndex() : -1;
+                bool shouldStayActive = handPanel == null || handPanel.gameObject.activeSelf;
+
+                if (handPanel != null)
+                {
+                    handPanel.gameObject.SetActive(false);
+                }
+
+                GameObject instance = Instantiate(handPanelPrefab, parent, false);
+                instance.name = handPanelPrefab.name;
+                if (siblingIndex >= 0)
+                {
+                    instance.transform.SetSiblingIndex(siblingIndex);
+                }
+
+                instance.SetActive(shouldStayActive);
+                existingLayout = instance.GetComponent<HandPanelLayout>();
+                handPanel = instance.GetComponent<RectTransform>();
+            }
+        }
+
+        if (existingLayout == null && handPanel != null)
+        {
+            existingLayout = handPanel.gameObject.AddComponent<HandPanelLayout>();
+        }
+
+        handPanelLayout = existingLayout;
+        if (handPanelLayout != null)
+        {
+            SyncHandPanelSlotCount();
+            handPanel = handPanelLayout.GetComponent<RectTransform>();
+            handBodyRoot = handPanelLayout.BodyRoot;
+        }
+    }
+
+    private void SyncHandPanelSlotCount()
+    {
+        if (handPanelLayout == null)
+        {
+            return;
+        }
+
+        int slotCount = gameManager != null ? gameManager.maxToolCardsPerPlayer : handPanelLayout.SlotCount;
+        handPanelLayout.SetSlotCount(slotCount);
+    }
+
     private void CacheSceneCollections()
     {
         questionButtons.Clear();
@@ -357,8 +673,32 @@ public class UIManager : MonoBehaviour
             }
         }
 
-        if ((handCardButtons == null || handCardButtons.Count == 0) && handBodyRoot != null)
+        EnsureHandPanelLayout();
+        if (handPanelLayout != null)
         {
+            SyncHandPanelSlotCount();
+            handBodyRoot = handPanelLayout.BodyRoot;
+            handCardViews.Clear();
+            handCardButtons = new List<Button>();
+            List<HandCardView> views = handPanelLayout.CardViews;
+            for (int i = 0; i < views.Count; i++)
+            {
+                HandCardView view = views[i];
+                if (view == null)
+                {
+                    continue;
+                }
+
+                handCardViews.Add(view);
+                if (view.RootButton != null)
+                {
+                    handCardButtons.Add(view.RootButton);
+                }
+            }
+        }
+        else if ((handCardButtons == null || handCardButtons.Count == 0 || HasNullHandCardButton()) && handBodyRoot != null)
+        {
+            handCardViews.Clear();
             handCardButtons = new List<Button>();
             for (int i = 0; i < handBodyRoot.childCount; i++)
             {
@@ -394,11 +734,209 @@ public class UIManager : MonoBehaviour
         }
     }
 
+    private void ConfigureSceneDialogLayouts()
+    {
+        ConfigureQuestionDialogLayout();
+        ConfigureNoticeDialogLayout();
+    }
+
+    private void ConfigureQuestionDialogLayout()
+    {
+        RectTransform cardRect = FindChildRect(questionOverlay, "QuestionCard");
+        ConfigureDialogPanelRect(cardRect);
+
+        if (questionTitleText != null)
+        {
+            ConfigureExistingDialogText(questionTitleText, 26, 28, TextAnchor.MiddleCenter, HorizontalWrapMode.Wrap, VerticalWrapMode.Truncate);
+            SetCenteredRect(questionTitleText.rectTransform, new Vector2(0f, 146f), new Vector2(420f, 48f));
+        }
+
+        if (questionBodyText != null)
+        {
+            ConfigureExistingDialogText(questionBodyText, 22, 24, TextAnchor.UpperLeft, HorizontalWrapMode.Wrap, VerticalWrapMode.Truncate);
+            SetCenteredRect(questionBodyText.rectTransform, new Vector2(0f, 42f), new Vector2(500f, 118f));
+        }
+
+        for (int i = 0; i < questionButtons.Count; i++)
+        {
+            Button button = questionButtons[i];
+            if (button == null)
+            {
+                continue;
+            }
+
+            RectTransform rect = button.GetComponent<RectTransform>();
+            if (rect != null)
+            {
+                Vector2 center = GetQuestionOptionCenter(i);
+                SetCenteredRect(rect, center, QuestionOptionButtonSize);
+            }
+
+            Image image = button.targetGraphic as Image;
+            if (image == null)
+            {
+                image = button.GetComponent<Image>();
+            }
+
+            if (image != null)
+            {
+                image.type = Image.Type.Sliced;
+                image.fillCenter = true;
+            }
+
+            Text text = button.GetComponentInChildren<Text>(true);
+            if (text != null)
+            {
+                ConfigureExistingDialogText(text, 16, 18, TextAnchor.MiddleCenter, HorizontalWrapMode.Wrap, VerticalWrapMode.Truncate);
+                SetDialogStretch(text.rectTransform, Vector2.zero, Vector2.one, new Vector2(16f, 3f), new Vector2(-16f, 3f));
+            }
+        }
+    }
+
+    private Vector2 GetQuestionOptionCenter(int optionIndex)
+    {
+        float x = optionIndex % 2 == 0 ? -128f : 128f;
+        float y = optionIndex < 2 ? -102f : -174f;
+        return new Vector2(x, y);
+    }
+
+    private void ConfigureNoticeDialogLayout()
+    {
+        RectTransform cardRect = FindChildRect(noticeOverlay, "NoticeCard");
+        ConfigureDialogPanelRect(cardRect);
+
+        if (noticeTitleText != null)
+        {
+            ConfigureExistingDialogText(noticeTitleText, 26, 28, TextAnchor.MiddleCenter, HorizontalWrapMode.Wrap, VerticalWrapMode.Truncate);
+            SetCenteredRect(noticeTitleText.rectTransform, new Vector2(0f, 146f), new Vector2(420f, 48f));
+        }
+
+        if (noticeBodyText != null)
+        {
+            ConfigureExistingDialogText(noticeBodyText, 22, 24, TextAnchor.UpperLeft, HorizontalWrapMode.Wrap, VerticalWrapMode.Truncate);
+            SetCenteredRect(noticeBodyText.rectTransform, new Vector2(0f, -18f), new Vector2(500f, 260f));
+            noticeBodyLayoutCaptured = false;
+            CaptureNoticeBodyLayout();
+        }
+
+        if (noticeConfirmButton != null)
+        {
+            RectTransform rect = noticeConfirmButton.GetComponent<RectTransform>();
+            if (rect != null)
+            {
+                SetCenteredRect(rect, new Vector2(0f, -192f), NoticeButtonSize);
+            }
+
+            Image image = noticeConfirmButton.targetGraphic as Image;
+            if (image == null)
+            {
+                image = noticeConfirmButton.GetComponent<Image>();
+            }
+
+            if (image != null)
+            {
+                image.type = Image.Type.Sliced;
+                image.fillCenter = true;
+            }
+
+            Text text = noticeConfirmButton.GetComponentInChildren<Text>(true);
+            if (text != null)
+            {
+                ConfigureExistingDialogText(text, 20, 24, TextAnchor.MiddleCenter, HorizontalWrapMode.Wrap, VerticalWrapMode.Truncate);
+                SetDialogStretch(text.rectTransform, Vector2.zero, Vector2.one, new Vector2(0f, 3f), new Vector2(0f, 3f));
+            }
+        }
+    }
+
+    private RectTransform FindChildRect(RectTransform parent, string childName)
+    {
+        if (parent == null)
+        {
+            return null;
+        }
+
+        Transform child = parent.Find(childName);
+        return child != null ? child.GetComponent<RectTransform>() : null;
+    }
+
+    private void ConfigureDialogPanelRect(RectTransform rect)
+    {
+        if (rect == null)
+        {
+            return;
+        }
+
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = Vector2.zero;
+        rect.sizeDelta = DialogPanelSize;
+        rect.localScale = Vector3.one;
+
+        Image image = rect.GetComponent<Image>();
+        if (image != null)
+        {
+            image.type = Image.Type.Simple;
+            image.fillCenter = true;
+        }
+    }
+
+    private void ConfigureExistingDialogText(Text text, int fontSize, int maxSize, TextAnchor alignment, HorizontalWrapMode horizontalWrap, VerticalWrapMode verticalWrap)
+    {
+        if (text == null)
+        {
+            return;
+        }
+
+        text.fontSize = fontSize;
+        text.resizeTextForBestFit = true;
+        text.resizeTextMinSize = 10;
+        text.resizeTextMaxSize = maxSize;
+        text.alignment = alignment;
+        text.horizontalOverflow = horizontalWrap;
+        text.verticalOverflow = verticalWrap;
+    }
+
+    private void SetCenteredRect(RectTransform rect, Vector2 center, Vector2 size)
+    {
+        if (rect == null)
+        {
+            return;
+        }
+
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = center;
+        rect.sizeDelta = size;
+        rect.localScale = Vector3.one;
+    }
+
+    private void SetBottomCenteredRect(RectTransform rect, float bottomY, Vector2 size)
+    {
+        if (rect == null)
+        {
+            return;
+        }
+
+        rect.anchorMin = new Vector2(0.5f, 0f);
+        rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.pivot = new Vector2(0.5f, 0f);
+        rect.anchoredPosition = new Vector2(0f, bottomY);
+        rect.sizeDelta = size;
+        rect.localScale = Vector3.one;
+    }
+
     private void CacheHandCardVisuals()
     {
         handCardTexts.Clear();
+        handCardImages.Clear();
         handCardUseButtons.Clear();
         handCardSelectionFrames.Clear();
+        if (handPanelLayout == null)
+        {
+            handCardViews.Clear();
+        }
 
         if (handCardButtons == null)
         {
@@ -411,11 +949,36 @@ public class UIManager : MonoBehaviour
             Transform cardRoot = cardButton != null ? cardButton.transform : null;
 
             Text cardText = null;
+            Image cardImage = null;
             Button useButton = null;
             Image selectionFrame = null;
 
-            if (cardRoot != null)
+            HandCardView cardView = i < handCardViews.Count ? handCardViews[i] : null;
+            if (cardView == null && cardRoot != null)
             {
+                cardView = cardRoot.GetComponent<HandCardView>();
+            }
+
+            if (cardView != null)
+            {
+                cardView.EnsureReferences();
+                cardText = cardView.EffectText;
+                cardImage = cardView.CardImage;
+                useButton = cardView.UseButton;
+                selectionFrame = cardView.SelectionFrame;
+            }
+            else if (cardRoot != null)
+            {
+                Transform cardImageTransform = cardRoot.Find("CardImage");
+                if (cardImageTransform != null)
+                {
+                    cardImage = cardImageTransform.GetComponent<Image>();
+                }
+                else
+                {
+                    cardImage = CreateHandCardImage(cardRoot);
+                }
+
                 Transform cardTextTransform = cardRoot.Find("CardText");
                 if (cardTextTransform == null)
                 {
@@ -441,14 +1004,57 @@ public class UIManager : MonoBehaviour
             }
 
             handCardTexts.Add(cardText);
+            handCardImages.Add(cardImage);
             handCardUseButtons.Add(useButton);
             handCardSelectionFrames.Add(selectionFrame);
         }
     }
 
+    private bool HasNullHandCardButton()
+    {
+        if (handCardButtons == null)
+        {
+            return true;
+        }
+
+        for (int i = 0; i < handCardButtons.Count; i++)
+        {
+            if (handCardButtons[i] == null)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private Image CreateHandCardImage(Transform cardRoot)
+    {
+        GameObject imageObject = new GameObject("CardImage", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        imageObject.transform.SetParent(cardRoot, false);
+        imageObject.transform.SetAsFirstSibling();
+
+        RectTransform rect = imageObject.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+
+        Image image = imageObject.GetComponent<Image>();
+        image.preserveAspect = true;
+        image.raycastTarget = false;
+        image.enabled = false;
+        return image;
+    }
+
     private void InitPlayerHud()
     {
         playerItems.Clear();
+
+        if (TryInitPrefabPlayerHud())
+        {
+            return;
+        }
 
         if (playerInfoItems != null)
         {
@@ -476,22 +1082,17 @@ public class UIManager : MonoBehaviour
 
     private void UpdateTopInfo()
     {
-        string currentName = gameManager.currentPlayerIndex >= 0
-            ? GetPlayerName(gameManager.currentPlayerIndex)
-            : "\u7b49\u5f85\u5f00\u59cb";
         if (turnText != null)
         {
-            turnText.text = $"\u5f53\u524d\u89d2\u8272\uff1a{currentName}";
+            turnText.text = gameManager.turnNumber.ToString();
         }
         if (diceText != null)
         {
-            diceText.text = gameManager.lastDiceValue > 0
-                ? $"\u4e0a\u6b21\u9ab0\u70b9\uff1a{gameManager.lastDiceValue}"
-                : "\u4e0a\u6b21\u9ab0\u70b9\uff1a\u7b49\u5f85\u63b7\u9ab0";
+            diceText.text = gameManager.lastDiceValue > 0 ? gameManager.lastDiceValue.ToString() : string.Empty;
         }
         if (statusText != null)
         {
-            statusText.text = $"\u5f53\u524d\u9636\u6bb5\uff1a{GetStatusLabel(gameManager.status)}";
+            statusText.text = GetStatusLabel(gameManager.status);
         }
     }
 
@@ -592,13 +1193,152 @@ public class UIManager : MonoBehaviour
             {
                 handSignature = string.Empty;
                 selectedHandCardIndex = -1;
+                HideHandCardDialog();
+            }
+            else
+            {
+                RefreshHandCardDialogUseState();
             }
         }
     }
 
+    private bool TryInitPrefabPlayerHud()
+    {
+        if (playerHudRoot == null)
+        {
+            return false;
+        }
+
+        PlayerInfoItem prefab = ResolvePlayerInfoItemPrefab();
+        if (prefab == null)
+        {
+            return false;
+        }
+
+        HideScenePlayerHudItems();
+
+        int playerCount = gameManager != null
+            ? Mathf.Max(1, gameManager.totalPlayers)
+            : Mathf.Max(1, playerInfoItems != null ? playerInfoItems.Count : 4);
+
+        List<PlayerInfoItem> generatedItems = GetGeneratedPlayerHudItems();
+        while (generatedItems.Count < playerCount)
+        {
+            PlayerInfoItem item = Instantiate(prefab, playerHudRoot, false);
+            item.name = $"PlayerCard_{generatedItems.Count + 1}";
+            generatedItems.Add(item);
+        }
+
+        for (int i = 0; i < generatedItems.Count; i++)
+        {
+            PlayerInfoItem item = generatedItems[i];
+            if (item == null)
+            {
+                continue;
+            }
+
+            bool active = i < playerCount;
+            item.gameObject.SetActive(active);
+            if (!active)
+            {
+                continue;
+            }
+
+            LayoutPlayerHudItem(item, i);
+            playerItems.Add(item);
+        }
+
+        return playerItems.Count > 0;
+    }
+
+    private PlayerInfoItem ResolvePlayerInfoItemPrefab()
+    {
+        if (playerCardPrefab != null)
+        {
+            return playerCardPrefab;
+        }
+
+        GameObject prefabObject = Resources.Load<GameObject>(PlayerCardPrefabPath);
+        if (prefabObject == null)
+        {
+            return null;
+        }
+
+        playerCardPrefab = prefabObject.GetComponent<PlayerInfoItem>();
+        return playerCardPrefab;
+    }
+
+    private List<PlayerInfoItem> GetGeneratedPlayerHudItems()
+    {
+        List<PlayerInfoItem> generatedItems = new List<PlayerInfoItem>();
+        PlayerInfoItem[] allItems = playerHudRoot.GetComponentsInChildren<PlayerInfoItem>(true);
+        for (int i = 0; i < allItems.Length; i++)
+        {
+            PlayerInfoItem item = allItems[i];
+            if (item == null || item.transform.parent != playerHudRoot || IsScenePlayerHudItem(item))
+            {
+                continue;
+            }
+            generatedItems.Add(item);
+        }
+
+        return generatedItems;
+    }
+
+    private bool IsScenePlayerHudItem(PlayerInfoItem item)
+    {
+        if (playerInfoItems == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < playerInfoItems.Count; i++)
+        {
+            if (playerInfoItems[i] == item)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void HideScenePlayerHudItems()
+    {
+        if (playerInfoItems == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < playerInfoItems.Count; i++)
+        {
+            PlayerInfoItem item = playerInfoItems[i];
+            if (item != null)
+            {
+                item.gameObject.SetActive(false);
+            }
+        }
+    }
+
+    private void LayoutPlayerHudItem(PlayerInfoItem item, int index)
+    {
+        RectTransform rect = item.GetComponent<RectTransform>();
+        if (rect == null)
+        {
+            return;
+        }
+
+        float scale = Mathf.Max(0.01f, playerCardScale);
+        float spacing = Mathf.Max(0f, playerCardSpacing);
+        float itemWidth = rect.rect.width > 0f ? rect.rect.width : PlayerHudItemFallbackSize.x;
+        rect.localScale = new Vector3(scale, scale, rect.localScale.z);
+        rect.anchoredPosition = playerCardOffset + new Vector2(index * (itemWidth * scale + spacing), 0f);
+    }
+
     private void UpdatePlayerHud()
     {
-        if (playerItems.Count == 0)
+        bool needsPrefabRefresh = playerItems.Count < gameManager.totalPlayers && ResolvePlayerInfoItemPrefab() != null;
+        if (playerItems.Count == 0 || needsPrefabRefresh)
         {
             InitPlayerHud();
         }
@@ -608,6 +1348,10 @@ public class UIManager : MonoBehaviour
             if (playerItems[i] != null)
             {
                 playerItems[i].gameObject.SetActive(i < playerCount);
+                if (i < playerCount)
+                {
+                    LayoutPlayerHudItem(playerItems[i], i);
+                }
             }
         }
         for (int i = 0; i < playerCount; i++)
@@ -617,9 +1361,9 @@ public class UIManager : MonoBehaviour
             {
                 continue;
             }
-            item.ApplyRuntimeStyle(null, GetPlayerAccent(i));
             item.SetName(GetPlayerName(i));
             item.SetControlTag(gameManager.IsAIPlayer(i) ? "AI" : "\u73a9\u5bb6");
+            item.SetAvatar(GetPlayerAvatar(i));
             item.SetMoney(GetDisplayedMoneyValue(i, gameManager.GetMoney(i)));
             item.SetOwnedPropertySummary(gameManager.GetOwnedPropertySummary(i));
             item.SetAlive(gameManager.IsPlayerAlive(i));
@@ -629,7 +1373,7 @@ public class UIManager : MonoBehaviour
 
     private void UpdateHandPanel()
     {
-        if (handPanel == null || handTitleText == null || !gameManager.ShouldShowHumanHand())
+        if (handPanel == null || !gameManager.ShouldShowHumanHand())
         {
             return;
         }
@@ -641,10 +1385,21 @@ public class UIManager : MonoBehaviour
             selectedHandCardIndex = -1;
         }
 
-        string nextSignature = gameManager.currentPlayerIndex + ":" + cards.Count + ":" + canUseCards + ":" + selectedHandCardIndex;
+        if (pendingHandCardIndex >= cards.Count)
+        {
+            HideHandCardDialog();
+        }
+
+        if ((handCardViews.Count == 0 && handCardButtons.Count == 0) || HasNullHandCardButton())
+        {
+            CacheSceneCollections();
+        }
+
+        int slotCount = handCardViews.Count > 0 ? handCardViews.Count : handCardButtons.Count;
+        string nextSignature = gameManager.currentPlayerIndex + ":" + cards.Count + ":" + canUseCards + ":" + selectedHandCardIndex + ":" + slotCount;
         for (int i = 0; i < cards.Count; i++)
         {
-            nextSignature += "|" + cards[i].id;
+            nextSignature += "|" + cards[i].id + ":" + cards[i].spriteName + ":" + cards[i].description;
         }
 
         if (handSignature == nextSignature)
@@ -653,17 +1408,44 @@ public class UIManager : MonoBehaviour
         }
 
         handSignature = nextSignature;
-        handTitleText.text = cards.Count > 0 ? $"\u9053\u5177\u624b\u724c \u00b7 {cards.Count}/3" : "\u9053\u5177\u624b\u724c \u00b7 \u6682\u65e0\u9053\u5177";
-
-        for (int i = 0; i < handCardButtons.Count; i++)
+        if (handTitleText != null)
         {
-            Button cardButton = handCardButtons[i];
+            int maxSlots = slotCount > 0 ? slotCount : gameManager.maxToolCardsPerPlayer;
+            handTitleText.text = cards.Count > 0 ? $"\u9053\u5177\u624b\u724c \u00b7 {cards.Count}/{maxSlots}" : "\u9053\u5177\u624b\u724c \u00b7 \u6682\u65e0\u9053\u5177";
+        }
+
+        for (int i = 0; i < slotCount; i++)
+        {
+            HandCardView cardView = i < handCardViews.Count ? handCardViews[i] : null;
+            if (cardView != null)
+            {
+                if (i < cards.Count)
+                {
+                    int cardIndex = i;
+                    cardView.SetCard(
+                        cards[i],
+                        GetCardSprite(cards[i]),
+                        true,
+                        false,
+                        () => ShowHandCardDialog(cardIndex),
+                        null);
+                }
+                else
+                {
+                    cardView.SetEmpty();
+                }
+
+                continue;
+            }
+
+            Button cardButton = i < handCardButtons.Count ? handCardButtons[i] : null;
             if (cardButton == null)
             {
                 continue;
             }
 
             Text cardText = i < handCardTexts.Count ? handCardTexts[i] : null;
+            Image cardImage = i < handCardImages.Count ? handCardImages[i] : null;
             Button useButton = i < handCardUseButtons.Count ? handCardUseButtons[i] : null;
             Image selectionFrame = i < handCardSelectionFrames.Count ? handCardSelectionFrames[i] : null;
             Text buttonText = cardText;
@@ -677,37 +1459,22 @@ public class UIManager : MonoBehaviour
             {
                 int cardIndex = i;
                 cardButton.gameObject.SetActive(true);
-                cardButton.interactable = canUseCards;
+                cardButton.interactable = true;
+                Sprite cardSprite = GetCardSprite(cards[i]);
+                bool hasCardSprite = cardSprite != null;
+                if (cardImage != null)
+                {
+                    cardImage.sprite = cardSprite;
+                    cardImage.enabled = hasCardSprite;
+                }
+
                 if (cardText != null)
                 {
-                    cardText.text = $"{cards[i].cardName}\n{cards[i].description}";
+                    cardText.gameObject.SetActive(true);
+                    ApplyHandCardTextVisual(cardText, true);
+                    cardText.text = cards[i].cardName;
                 }
 
-                bool isSelected = canUseCards && selectedHandCardIndex == i;
-                if (selectionFrame != null)
-                {
-                    selectionFrame.gameObject.SetActive(isSelected);
-                }
-
-                if (useButton != null)
-                {
-                    useButton.gameObject.SetActive(isSelected);
-                    useButton.interactable = isSelected;
-                }
-
-                if (canUseCards)
-                {
-                    cardButton.onClick.AddListener(() => ToggleHandCardSelection(cardIndex));
-                    if (useButton != null)
-                    {
-                        useButton.onClick.AddListener(() => UseSelectedHandCard(cardIndex));
-                    }
-                }
-            }
-            else
-            {
-                cardButton.gameObject.SetActive(true);
-                cardButton.interactable = false;
                 if (selectionFrame != null)
                 {
                     selectionFrame.gameObject.SetActive(false);
@@ -719,13 +1486,373 @@ public class UIManager : MonoBehaviour
                     useButton.interactable = false;
                 }
 
+                cardButton.onClick.AddListener(() => ShowHandCardDialog(cardIndex));
+            }
+            else
+            {
+                cardButton.gameObject.SetActive(true);
+                cardButton.interactable = false;
+                if (selectionFrame != null)
+                {
+                    selectionFrame.gameObject.SetActive(false);
+                }
+
+                if (cardImage != null)
+                {
+                    cardImage.sprite = null;
+                    cardImage.enabled = false;
+                }
+
+                if (useButton != null)
+                {
+                    useButton.gameObject.SetActive(false);
+                    useButton.interactable = false;
+                }
+
                 if (cardText != null)
                 {
+                    cardText.gameObject.SetActive(true);
+                    ApplyHandCardTextVisual(cardText, false);
                     buttonText.text = "\u7a7a\u69fd";
                 }
             }
         }
     }
+
+    private void ShowHandCardDialog(int cardIndex)
+    {
+        if (gameManager == null)
+        {
+            return;
+        }
+
+        List<CardData> cards = gameManager.GetPlayerToolCards(gameManager.currentPlayerIndex);
+        if (cardIndex < 0 || cardIndex >= cards.Count)
+        {
+            HideHandCardDialog();
+            return;
+        }
+
+        EnsureHandCardDialog();
+        if (handCardDialogOverlay == null)
+        {
+            return;
+        }
+
+        CardData card = cards[cardIndex];
+        pendingHandCardIndex = cardIndex;
+
+        if (handCardDialogTitleText != null)
+        {
+            handCardDialogTitleText.gameObject.SetActive(true);
+            handCardDialogTitleText.text = card != null && !string.IsNullOrEmpty(card.cardName) ? card.cardName : "\u4f7f\u7528\u9053\u5177";
+        }
+
+        if (handCardDialogBodyText != null)
+        {
+            string effect = card != null
+                ? (!string.IsNullOrEmpty(card.description) ? card.description : card.effect)
+                : string.Empty;
+            handCardDialogBodyText.text = string.IsNullOrEmpty(effect) ? "\u6682\u65e0\u6548\u679c\u8bf4\u660e" : effect;
+        }
+
+        if (handCardDialogImage != null)
+        {
+            Sprite sprite = GetCardSprite(card);
+            handCardDialogImage.sprite = sprite;
+            handCardDialogImage.enabled = sprite != null;
+            handCardDialogImage.gameObject.SetActive(sprite != null);
+        }
+
+        if (handCardDialogUseButton != null)
+        {
+            handCardDialogUseButton.onClick.RemoveAllListeners();
+            handCardDialogUseButton.onClick.AddListener(UsePendingHandCard);
+        }
+
+        if (handCardDialogCancelButton != null)
+        {
+            handCardDialogCancelButton.onClick.RemoveAllListeners();
+            handCardDialogCancelButton.onClick.AddListener(HideHandCardDialog);
+        }
+
+        handCardDialogOverlay.gameObject.SetActive(true);
+        handCardDialogOverlay.SetAsLastSibling();
+        RefreshHandCardDialogUseState();
+    }
+
+    private void HideHandCardDialog()
+    {
+        pendingHandCardIndex = -1;
+        if (handCardDialogOverlay != null)
+        {
+            handCardDialogOverlay.gameObject.SetActive(false);
+        }
+    }
+
+    private void RefreshHandCardDialogUseState()
+    {
+        if (handCardDialogOverlay == null || !handCardDialogOverlay.gameObject.activeSelf)
+        {
+            return;
+        }
+
+        List<CardData> cards = gameManager != null
+            ? gameManager.GetPlayerToolCards(gameManager.currentPlayerIndex)
+            : null;
+        bool validCard = cards != null && pendingHandCardIndex >= 0 && pendingHandCardIndex < cards.Count;
+        if (!validCard)
+        {
+            HideHandCardDialog();
+            return;
+        }
+
+        if (handCardDialogUseButton != null)
+        {
+            handCardDialogUseButton.interactable = gameManager.CanHumanUseToolCard(gameManager.currentPlayerIndex, pendingHandCardIndex);
+        }
+    }
+
+    private void UsePendingHandCard()
+    {
+        if (gameManager == null || !gameManager.CanHumanUseToolCard(gameManager.currentPlayerIndex, pendingHandCardIndex))
+        {
+            RefreshHandCardDialogUseState();
+            return;
+        }
+
+        List<CardData> cards = gameManager.GetPlayerToolCards(gameManager.currentPlayerIndex);
+        if (pendingHandCardIndex < 0 || pendingHandCardIndex >= cards.Count)
+        {
+            HideHandCardDialog();
+            return;
+        }
+
+        int cardIndex = pendingHandCardIndex;
+        HideHandCardDialog();
+        selectedHandCardIndex = -1;
+        handSignature = string.Empty;
+        gameManager.RequestUseToolCard(cardIndex);
+        UpdateHandPanel();
+    }
+
+    private void ApplyHandCardTextVisual(Text cardText, bool imageMode)
+    {
+        if (cardText == null)
+        {
+            return;
+        }
+
+        RectTransform rect = cardText.rectTransform;
+        Outline outline = cardText.GetComponent<Outline>();
+        if (imageMode && outline == null)
+        {
+            outline = cardText.gameObject.AddComponent<Outline>();
+        }
+
+        if (imageMode)
+        {
+            rect.anchorMin = new Vector2(0f, 0f);
+            rect.anchorMax = new Vector2(1f, 0f);
+            rect.pivot = new Vector2(0.5f, 0f);
+            rect.anchoredPosition = new Vector2(0f, 5f);
+            rect.sizeDelta = new Vector2(-18f, 28f);
+            cardText.alignment = TextAnchor.MiddleCenter;
+            cardText.color = Color.white;
+            cardText.fontStyle = FontStyle.Bold;
+            cardText.resizeTextForBestFit = true;
+            cardText.resizeTextMinSize = 9;
+            cardText.resizeTextMaxSize = 16;
+            cardText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            cardText.verticalOverflow = VerticalWrapMode.Truncate;
+            if (outline != null)
+            {
+                outline.enabled = true;
+                outline.effectColor = new Color(0f, 0f, 0f, 0.7f);
+                outline.effectDistance = new Vector2(1f, -1f);
+            }
+        }
+        else
+        {
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = new Vector2(0f, 6f);
+            rect.sizeDelta = new Vector2(-24f, -24f);
+            cardText.alignment = TextAnchor.UpperLeft;
+            cardText.color = new Color(0.27f, 0.18f, 0.12f, 1f);
+            cardText.fontStyle = FontStyle.Bold;
+            cardText.resizeTextForBestFit = true;
+            cardText.resizeTextMinSize = 10;
+            cardText.resizeTextMaxSize = 18;
+            cardText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            cardText.verticalOverflow = VerticalWrapMode.Overflow;
+            if (outline != null)
+            {
+                outline.enabled = false;
+            }
+        }
+    }
+
+    private Sprite GetCardSprite(CardData card)
+    {
+        if (card == null)
+        {
+            return null;
+        }
+
+        string spriteName = !string.IsNullOrEmpty(card.spriteName) ? card.spriteName : GetFallbackCardSpriteName(card.id);
+        if (string.IsNullOrEmpty(spriteName))
+        {
+            return null;
+        }
+
+        EnsureCardSpritesLoaded();
+        return cardSpritesByName.TryGetValue(spriteName, out Sprite sprite) ? sprite : null;
+    }
+
+    private string GetFallbackCardSpriteName(string cardId)
+    {
+        if (string.IsNullOrEmpty(cardId) || cardId.Length < 2)
+        {
+            return string.Empty;
+        }
+
+        string numberPart = cardId.Substring(1);
+        if (!int.TryParse(numberPart, out int number) || number <= 0)
+        {
+            return string.Empty;
+        }
+
+        char type = char.ToUpperInvariant(cardId[0]);
+        if (type == 'T')
+        {
+            return $"Card_{number - 1}";
+        }
+
+        if (type == 'L')
+        {
+            return $"Card_{number + 5}";
+        }
+
+        return string.Empty;
+    }
+
+    private void EnsureCardSpritesLoaded()
+    {
+        if (cardSpritesLoaded)
+        {
+            return;
+        }
+
+        cardSpritesLoaded = true;
+        cardSpritesByName.Clear();
+        Sprite[] sprites = Resources.LoadAll<Sprite>("Chance/Card");
+        for (int i = 0; i < sprites.Length; i++)
+        {
+            Sprite sprite = sprites[i];
+            if (sprite != null && !string.IsNullOrEmpty(sprite.name))
+            {
+                cardSpritesByName[sprite.name] = sprite;
+            }
+        }
+    }
+
+    private void SetNoticeCardVisual(Sprite sprite)
+    {
+        if (sprite == null)
+        {
+            if (noticeCardImage != null)
+            {
+                noticeCardImage.sprite = null;
+                noticeCardImage.gameObject.SetActive(false);
+            }
+
+            RestoreNoticeBodyLayout();
+            return;
+        }
+
+        Image image = EnsureNoticeCardImage();
+        if (image == null)
+        {
+            return;
+        }
+
+        CaptureNoticeBodyLayout();
+        image.sprite = sprite;
+        image.preserveAspect = true;
+        image.gameObject.SetActive(true);
+
+        if (noticeBodyText != null)
+        {
+            SetCenteredRect(noticeBodyText.rectTransform, new Vector2(118f, 6f), new Vector2(260f, 210f));
+            noticeBodyText.alignment = TextAnchor.UpperLeft;
+        }
+    }
+
+    private Image EnsureNoticeCardImage()
+    {
+        if (noticeCardImage != null)
+        {
+            return noticeCardImage;
+        }
+
+        Transform parent = noticeBodyText != null ? noticeBodyText.transform.parent : null;
+        if (parent == null && noticeOverlay != null)
+        {
+            parent = noticeOverlay;
+        }
+
+        if (parent == null)
+        {
+            return null;
+        }
+
+        GameObject imageObject = new GameObject("NoticeCardImage", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        imageObject.transform.SetParent(parent, false);
+        imageObject.transform.SetSiblingIndex(1);
+
+        RectTransform rect = imageObject.GetComponent<RectTransform>();
+        SetCenteredRect(rect, new Vector2(-126f, 6f), new Vector2(190f, 190f));
+
+        noticeCardImage = imageObject.GetComponent<Image>();
+        noticeCardImage.raycastTarget = false;
+        noticeCardImage.preserveAspect = true;
+        noticeCardImage.gameObject.SetActive(false);
+        return noticeCardImage;
+    }
+
+    private void CaptureNoticeBodyLayout()
+    {
+        if (noticeBodyLayoutCaptured || noticeBodyText == null)
+        {
+            return;
+        }
+
+        RectTransform bodyRect = noticeBodyText.rectTransform;
+        noticeBodyAnchorMin = bodyRect.anchorMin;
+        noticeBodyAnchorMax = bodyRect.anchorMax;
+        noticeBodyAnchoredPosition = bodyRect.anchoredPosition;
+        noticeBodySizeDelta = bodyRect.sizeDelta;
+        noticeBodyPivot = bodyRect.pivot;
+        noticeBodyLayoutCaptured = true;
+    }
+
+    private void RestoreNoticeBodyLayout()
+    {
+        if (!noticeBodyLayoutCaptured || noticeBodyText == null)
+        {
+            return;
+        }
+
+        RectTransform bodyRect = noticeBodyText.rectTransform;
+        bodyRect.anchorMin = noticeBodyAnchorMin;
+        bodyRect.anchorMax = noticeBodyAnchorMax;
+        bodyRect.anchoredPosition = noticeBodyAnchoredPosition;
+        bodyRect.sizeDelta = noticeBodySizeDelta;
+        bodyRect.pivot = noticeBodyPivot;
+    }
+
     private void ToggleHandCardSelection(int cardIndex)
     {
         selectedHandCardIndex = selectedHandCardIndex == cardIndex ? -1 : cardIndex;
@@ -735,7 +1862,7 @@ public class UIManager : MonoBehaviour
 
     private void UseSelectedHandCard(int cardIndex)
     {
-        if (!gameManager.CanHumanUseToolCards(gameManager.currentPlayerIndex))
+        if (!gameManager.CanHumanUseToolCard(gameManager.currentPlayerIndex, cardIndex))
         {
             return;
         }
@@ -834,6 +1961,37 @@ public class UIManager : MonoBehaviour
             SetDebugLogPanelVisible(!debugLogPanelVisible);
         }
     }
+
+#if UNITY_EDITOR
+    private void HandleEditorHandCardShortcut()
+    {
+        if (!Input.GetKeyDown(KeyCode.Q) || gameManager == null || !gameManager.ShouldShowHumanHand())
+        {
+            return;
+        }
+
+        CardData card = gameManager.EditorGiveRandomToolCardToCurrentPlayer();
+        if (card == null)
+        {
+            return;
+        }
+
+        selectedHandCardIndex = -1;
+        handSignature = string.Empty;
+        CacheSceneCollections();
+        UpdateHandPanel();
+    }
+
+    private void HandleEditorQuestionShortcut()
+    {
+        if (!Input.GetKeyDown(KeyCode.E) || gameManager == null)
+        {
+            return;
+        }
+
+        gameManager.EditorShowRandomQuestion();
+    }
+#endif
 
     private void SetDebugLogPanelVisible(bool visible)
     {
@@ -1160,6 +2318,81 @@ public class UIManager : MonoBehaviour
                 return new Color(0.63f, 0.33f, 0.79f);
             default:
                 return new Color(0.20f, 0.63f, 0.72f);
+        }
+    }
+
+    private Sprite GetPlayerAvatar(int playerIndex)
+    {
+        if (gameManager == null || gameManager.playerManager == null)
+        {
+            return null;
+        }
+
+        RoleId roleId = gameManager.playerManager.GetPlayerRoleId(playerIndex);
+        if (roleAvatarSprites.TryGetValue(roleId, out Sprite cachedSprite))
+        {
+            return cachedSprite;
+        }
+
+        Sprite sprite = LoadRoleAvatarSprite(roleId);
+        roleAvatarSprites[roleId] = sprite;
+        return sprite;
+    }
+
+    private Sprite LoadRoleAvatarSprite(RoleId roleId)
+    {
+        RoleDefinition role = GameRoleCatalog.Get(roleId);
+        if (role != null && !string.IsNullOrEmpty(role.portraitResourceName))
+        {
+            Sprite sheetSprite = LoadRoleAvatarFromSheet(role.portraitResourceName);
+            if (sheetSprite != null)
+            {
+                return sheetSprite;
+            }
+        }
+
+        string textureName = GetRoleAvatarTextureName(roleId);
+        Texture2D texture = string.IsNullOrEmpty(textureName)
+            ? null
+            : Resources.Load<Texture2D>($"RolePortraits/{textureName}");
+        if (texture == null && role != null && !string.IsNullOrEmpty(role.portraitResourceName))
+        {
+            texture = Resources.Load<Texture2D>($"RolePortraits/{role.portraitResourceName}");
+        }
+
+        return texture != null
+            ? Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f))
+            : null;
+    }
+
+    private Sprite LoadRoleAvatarFromSheet(string spriteName)
+    {
+        Sprite[] sprites = Resources.LoadAll<Sprite>("RolePortraits/role");
+        for (int i = 0; i < sprites.Length; i++)
+        {
+            if (sprites[i] != null && sprites[i].name == spriteName)
+            {
+                return sprites[i];
+            }
+        }
+
+        return null;
+    }
+
+    private string GetRoleAvatarTextureName(RoleId roleId)
+    {
+        switch (roleId)
+        {
+            case RoleId.Duck:
+                return "duck";
+            case RoleId.Rabbit:
+                return "rabbit";
+            case RoleId.Panda:
+                return "panda";
+            case RoleId.Dog:
+                return "dog";
+            default:
+                return string.Empty;
         }
     }
 

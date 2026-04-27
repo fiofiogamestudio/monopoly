@@ -2,15 +2,23 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 public class MenuScene : MonoBehaviour
 {
-    private const string ButtonStart = "\u5f00\u59cb\u6e38\u620f";
-    private const string ButtonQuitGame = "\u9000\u51fa\u6e38\u620f";
-    private const string ButtonBack = "\u8fd4\u56de";
-    private const string ButtonBackToRoles = "\u8fd4\u56de\u9009\u89d2";
-    private const string ButtonViewRules = "\u67e5\u770b\u89c4\u5219";
-    private const string ButtonEnterGame = "\u8fdb\u5165\u6e38\u620f";
+    private const string RoleSheetResourcesPath = "RolePortraits/role";
+    private const string RoleSheetAssetPath = "Assets/Art/UI/role.png";
+    private const float RoleCardWidth = 268f;
+    private const float RoleCardHeight = 520f;
+    private const float RoleCardPortraitWidth = 242f;
+    private const float RoleCardPortraitHeight = 352f;
+    private const float NavButtonWidth = 500f;
+    private const float NavButtonHeight = 150f;
+    private const float NavButtonHorizontalMargin = 64f;
+    private const float NavButtonVerticalMargin = 48f;
+    private const float NavButtonLabelYOffset = 17f;
     private const string RoleTitle = "\u9009\u62e9\u4f60\u7684\u4e3b\u89d2";
     private const string RoleSubtitle = "\u70b9\u51fb\u4e0b\u65b9\u89d2\u8272\u5361\u9009\u62e9\u4e3b\u89d2\uff0c\u518d\u8fdb\u5165\u89c4\u5219\u8bf4\u660e\u3002";
     private const string RuleTitle = "\u5f00\u59cb\u524d\u8bf4\u660e";
@@ -144,12 +152,13 @@ public class MenuScene : MonoBehaviour
         _rulePortraitImage = _menuShellInstance.transform.Find("RulePanel/RulePortraitFrame/RulePortraitImage")?.GetComponent<Image>();
 
         ApplyFontToExistingTexts(_menuShellInstance.transform);
-        ApplyButtonStyle(StartButton, ButtonStart, new Color(0.36f, 0.82f, 0.25f, 1f));
-        ApplyButtonStyle(_quitButton, ButtonQuitGame, new Color(0.79f, 0.36f, 0.27f, 1f));
-        ApplyButtonStyle(_roleBackButton, ButtonBack, new Color(0.13f, 0.24f, 0.31f, 0.96f));
-        ApplyButtonStyle(_roleNextButton, ButtonViewRules, new Color(0.38f, 0.82f, 0.24f, 1f));
-        ApplyButtonStyle(_ruleBackButton, ButtonBackToRoles, new Color(0.13f, 0.24f, 0.31f, 0.96f));
-        ApplyButtonStyle(_enterGameButton, ButtonEnterGame, new Color(0.38f, 0.82f, 0.24f, 1f));
+        ApplyButtonStyle(StartButton);
+        ApplyButtonStyle(_quitButton);
+        ApplyButtonStyle(_roleBackButton);
+        ApplyButtonStyle(_roleNextButton);
+        ApplyButtonStyle(_ruleBackButton);
+        ApplyButtonStyle(_enterGameButton);
+        ApplyNavigationButtonLayout();
 
         if (_roleTitleText != null)
         {
@@ -205,7 +214,8 @@ public class MenuScene : MonoBehaviour
             RectTransform cardRect = cardObject.GetComponent<RectTransform>();
             if (cardRect != null)
             {
-                float cardWidth = cardRect.sizeDelta.x;
+                cardRect.sizeDelta = new Vector2(RoleCardWidth, RoleCardHeight);
+                float cardWidth = RoleCardWidth;
                 float gap = 28f;
                 float totalWidth = (cardWidth * GameRoleCatalog.AllRoles.Count) + (gap * (GameRoleCatalog.AllRoles.Count - 1));
                 float startX = (-totalWidth * 0.5f) + (cardWidth * 0.5f);
@@ -279,6 +289,7 @@ public class MenuScene : MonoBehaviour
         SetActive(_mainMenuPanel, false);
         SetActive(_rolePanel, true);
         SetActive(_rulePanel, false);
+        ApplyNavigationButtonLayout();
         RefreshRoleSelection();
     }
 
@@ -287,6 +298,7 @@ public class MenuScene : MonoBehaviour
         SetActive(_mainMenuPanel, false);
         SetActive(_rolePanel, false);
         SetActive(_rulePanel, true);
+        ApplyNavigationButtonLayout();
         RefreshRulePanel();
     }
 
@@ -358,7 +370,7 @@ public class MenuScene : MonoBehaviour
         SceneManager.LoadScene("GameScene");
     }
 
-    private void ApplyButtonStyle(Button button, string label, Color fillColor)
+    private void ApplyButtonStyle(Button button)
     {
         if (button == null)
         {
@@ -368,22 +380,61 @@ public class MenuScene : MonoBehaviour
         Image image = button.GetComponent<Image>();
         if (image != null)
         {
-            image.color = fillColor;
+            button.targetGraphic = image;
         }
 
         Text labelText = button.GetComponentInChildren<Text>(true);
         if (labelText != null)
         {
             labelText.font = _defaultFont;
-            labelText.text = label;
         }
 
         ColorBlock colors = button.colors;
-        colors.normalColor = fillColor;
-        colors.highlightedColor = Brighten(fillColor, 0.08f);
-        colors.pressedColor = Darken(fillColor, 0.12f);
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.96f, 0.96f, 0.96f, 1f);
+        colors.pressedColor = new Color(0.78f, 0.78f, 0.78f, 1f);
         colors.selectedColor = colors.highlightedColor;
+        colors.disabledColor = new Color(0.78f, 0.78f, 0.78f, 0.5f);
         button.colors = colors;
+    }
+
+    private void ApplyNavigationButtonLayout()
+    {
+        ApplyCornerButtonLayout(_roleBackButton, true);
+        ApplyCornerButtonLayout(_roleNextButton, false);
+        ApplyCornerButtonLayout(_ruleBackButton, true);
+        ApplyCornerButtonLayout(_enterGameButton, false);
+    }
+
+    private void ApplyCornerButtonLayout(Button button, bool left)
+    {
+        if (button == null)
+        {
+            return;
+        }
+
+        RectTransform rectTransform = button.transform as RectTransform;
+        if (rectTransform != null)
+        {
+            float anchorX = left ? 0f : 1f;
+            rectTransform.anchorMin = new Vector2(anchorX, 0f);
+            rectTransform.anchorMax = new Vector2(anchorX, 0f);
+            rectTransform.pivot = new Vector2(anchorX, 0f);
+            rectTransform.anchoredPosition = new Vector2(left ? NavButtonHorizontalMargin : -NavButtonHorizontalMargin, NavButtonVerticalMargin);
+            rectTransform.sizeDelta = new Vector2(NavButtonWidth, NavButtonHeight);
+        }
+
+        Text labelText = button.GetComponentInChildren<Text>(true);
+        if (labelText != null)
+        {
+            RectTransform labelRect = labelText.rectTransform;
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.pivot = new Vector2(0.5f, 0.5f);
+            labelRect.anchoredPosition = new Vector2(0f, NavButtonLabelYOffset);
+            labelRect.sizeDelta = new Vector2(-20f, -10f);
+            labelText.alignment = TextAnchor.MiddleCenter;
+        }
     }
 
     private void SetActive(GameObject target, bool visible)
@@ -427,12 +478,12 @@ public class MenuScene : MonoBehaviour
             rectTransform = cardObject != null ? cardObject.GetComponent<RectTransform>() : null,
             button = cardObject != null ? cardObject.GetComponent<Button>() : null,
             rootImage = cardObject != null ? cardObject.GetComponent<Image>() : null,
-            portraitFrame = cardObject != null ? cardObject.transform.Find("PortraitFrame")?.GetComponent<Image>() : null,
-            portraitImage = cardObject != null ? cardObject.transform.Find("PortraitFrame/PortraitImage")?.GetComponent<Image>() : null,
-            nameText = cardObject != null ? cardObject.transform.Find("NameText")?.GetComponent<Text>() : null,
-            themeText = cardObject != null ? cardObject.transform.Find("ThemeText")?.GetComponent<Text>() : null,
-            skillTitleText = cardObject != null ? cardObject.transform.Find("SkillTitleText")?.GetComponent<Text>() : null,
-            skillText = cardObject != null ? cardObject.transform.Find("SkillText")?.GetComponent<Text>() : null
+            portraitFrame = FindChildComponent<Image>(cardObject, "PortraitFrame"),
+            portraitImage = FindChildComponent<Image>(cardObject, "PortraitImage"),
+            nameText = FindChildComponent<Text>(cardObject, "NameText"),
+            themeText = FindChildComponent<Text>(cardObject, "ThemeText"),
+            skillTitleText = FindChildComponent<Text>(cardObject, "SkillTitleText"),
+            skillText = FindChildComponent<Text>(cardObject, "SkillText")
         };
 
         if (cardObject != null)
@@ -462,7 +513,34 @@ public class MenuScene : MonoBehaviour
             runtime.baseAnchoredPosition = runtime.rectTransform.anchoredPosition;
         }
 
+        ApplyRoleCardLayout(runtime);
+
         return runtime;
+    }
+
+    private T FindChildComponent<T>(GameObject root, string childName) where T : Component
+    {
+        if (root == null || string.IsNullOrEmpty(childName))
+        {
+            return null;
+        }
+
+        Transform directChild = root.transform.Find(childName);
+        if (directChild != null && directChild.TryGetComponent(out T directComponent))
+        {
+            return directComponent;
+        }
+
+        T[] components = root.GetComponentsInChildren<T>(true);
+        for (int i = 0; i < components.Length; i++)
+        {
+            if (components[i] != null && components[i].name == childName)
+            {
+                return components[i];
+            }
+        }
+
+        return null;
     }
 
     private void PopulateRoleCard(RoleCardRuntime runtime, RoleDefinition role)
@@ -500,6 +578,98 @@ public class MenuScene : MonoBehaviour
             runtime.portraitImage.color = runtime.portraitImage.sprite != null ? Color.white : new Color(1f, 1f, 1f, 0.12f);
             runtime.portraitImage.preserveAspect = true;
         }
+    }
+
+    private void ApplyRoleCardLayout(RoleCardRuntime runtime)
+    {
+        if (runtime == null)
+        {
+            return;
+        }
+
+        if (runtime.rectTransform != null)
+        {
+            runtime.rectTransform.sizeDelta = new Vector2(RoleCardWidth, RoleCardHeight);
+        }
+
+        SetTextVisible(runtime.nameText, false);
+        SetTextVisible(runtime.themeText, false);
+
+        if (runtime.portraitFrame != null)
+        {
+            runtime.portraitFrame.gameObject.SetActive(true);
+            SetTopCenterRect(runtime.portraitFrame.rectTransform, new Vector2(RoleCardPortraitWidth, RoleCardPortraitHeight), 12f);
+
+            if (runtime.portraitImage != null)
+            {
+                SetStretchRect(runtime.portraitImage.rectTransform);
+            }
+        }
+        else if (runtime.portraitImage != null)
+        {
+            runtime.portraitImage.gameObject.SetActive(true);
+            SetTopCenterRect(runtime.portraitImage.rectTransform, new Vector2(RoleCardPortraitWidth, RoleCardPortraitHeight), 12f);
+        }
+
+        if (runtime.skillTitleText != null)
+        {
+            runtime.skillTitleText.gameObject.SetActive(true);
+            SetTopCenterRect(runtime.skillTitleText.rectTransform, new Vector2(232f, 30f), 376f);
+            runtime.skillTitleText.alignment = TextAnchor.MiddleCenter;
+            runtime.skillTitleText.resizeTextForBestFit = true;
+            runtime.skillTitleText.resizeTextMinSize = 14;
+            runtime.skillTitleText.resizeTextMaxSize = 20;
+            runtime.skillTitleText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            runtime.skillTitleText.verticalOverflow = VerticalWrapMode.Overflow;
+        }
+
+        if (runtime.skillText != null)
+        {
+            runtime.skillText.gameObject.SetActive(true);
+            SetTopCenterRect(runtime.skillText.rectTransform, new Vector2(232f, 88f), 410f);
+            runtime.skillText.alignment = TextAnchor.UpperCenter;
+            runtime.skillText.resizeTextForBestFit = true;
+            runtime.skillText.resizeTextMinSize = 12;
+            runtime.skillText.resizeTextMaxSize = 17;
+            runtime.skillText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            runtime.skillText.verticalOverflow = VerticalWrapMode.Overflow;
+        }
+    }
+
+    private void SetTextVisible(Text text, bool visible)
+    {
+        if (text != null)
+        {
+            text.gameObject.SetActive(visible);
+        }
+    }
+
+    private static void SetTopCenterRect(RectTransform rectTransform, Vector2 size, float top)
+    {
+        if (rectTransform == null)
+        {
+            return;
+        }
+
+        rectTransform.anchorMin = new Vector2(0.5f, 1f);
+        rectTransform.anchorMax = new Vector2(0.5f, 1f);
+        rectTransform.pivot = new Vector2(0.5f, 1f);
+        rectTransform.anchoredPosition = new Vector2(0f, -top);
+        rectTransform.sizeDelta = size;
+    }
+
+    private static void SetStretchRect(RectTransform rectTransform)
+    {
+        if (rectTransform == null)
+        {
+            return;
+        }
+
+        rectTransform.anchorMin = Vector2.zero;
+        rectTransform.anchorMax = Vector2.one;
+        rectTransform.pivot = new Vector2(0.5f, 0.5f);
+        rectTransform.anchoredPosition = Vector2.zero;
+        rectTransform.sizeDelta = Vector2.zero;
     }
 
     private void ApplyRoleCardVisual(RoleCardRuntime card, RolePalette palette, bool selected, bool interactive)
@@ -682,6 +852,13 @@ public class MenuScene : MonoBehaviour
             return cachedSprite;
         }
 
+        Sprite sprite = LoadRoleSprite(role.portraitResourceName);
+        if (sprite != null)
+        {
+            _portraitCache[role.portraitResourceName] = sprite;
+            return sprite;
+        }
+
         Texture2D texture = Resources.Load<Texture2D>($"RolePortraits/{role.portraitResourceName}");
         if (texture == null)
         {
@@ -689,10 +866,106 @@ public class MenuScene : MonoBehaviour
             return null;
         }
 
-        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f));
+        sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f));
         _portraitCache[role.portraitResourceName] = sprite;
         return sprite;
     }
+
+    private Sprite LoadRoleSprite(string spriteName)
+    {
+        Sprite sprite = LoadRoleSpriteFromResources(spriteName);
+        if (sprite != null)
+        {
+            return sprite;
+        }
+
+#if UNITY_EDITOR
+        sprite = LoadRoleSpriteFromAssetDatabase(spriteName);
+        if (sprite != null)
+        {
+            return sprite;
+        }
+#endif
+
+        return null;
+    }
+
+    private Sprite LoadRoleSpriteFromResources(string spriteName)
+    {
+        Sprite[] sprites = Resources.LoadAll<Sprite>(RoleSheetResourcesPath);
+        for (int i = 0; i < sprites.Length; i++)
+        {
+            if (sprites[i] != null && sprites[i].name == spriteName)
+            {
+                return sprites[i];
+            }
+        }
+
+        return CreateRoleSpriteFromResourceSheet(spriteName);
+    }
+
+    private Sprite CreateRoleSpriteFromResourceSheet(string spriteName)
+    {
+        if (!TryGetRoleSpriteRect(spriteName, out Rect spriteRect))
+        {
+            return null;
+        }
+
+        Texture2D texture = Resources.Load<Texture2D>(RoleSheetResourcesPath);
+        if (texture == null)
+        {
+            return null;
+        }
+
+        if (spriteRect.xMin < 0f || spriteRect.yMin < 0f || spriteRect.xMax > texture.width || spriteRect.yMax > texture.height)
+        {
+            Debug.LogWarning($"[MenuScene] Role sprite rect is outside texture bounds: {spriteName}");
+            return null;
+        }
+
+        Sprite sprite = Sprite.Create(texture, spriteRect, new Vector2(0.5f, 0.5f), 100f);
+        sprite.name = spriteName;
+        return sprite;
+    }
+
+    private bool TryGetRoleSpriteRect(string spriteName, out Rect spriteRect)
+    {
+        switch (spriteName)
+        {
+            case "role_0":
+                spriteRect = new Rect(14f, 962f, 242f, 352f);
+                return true;
+            case "role_1":
+                spriteRect = new Rect(266f, 962f, 243f, 352f);
+                return true;
+            case "role_2":
+                spriteRect = new Rect(523f, 962f, 233f, 351f);
+                return true;
+            case "role_3":
+                spriteRect = new Rect(767f, 960f, 241f, 354f);
+                return true;
+            default:
+                spriteRect = new Rect();
+                return false;
+        }
+    }
+
+#if UNITY_EDITOR
+    private Sprite LoadRoleSpriteFromAssetDatabase(string spriteName)
+    {
+        UnityEngine.Object[] assets = AssetDatabase.LoadAllAssetsAtPath(RoleSheetAssetPath);
+        for (int i = 0; i < assets.Length; i++)
+        {
+            Sprite sprite = assets[i] as Sprite;
+            if (sprite != null && sprite.name == spriteName)
+            {
+                return sprite;
+            }
+        }
+
+        return null;
+    }
+#endif
 
     private void QuitGame()
     {

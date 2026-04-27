@@ -32,7 +32,7 @@ public static class GameRoleCatalog
             roleId = RoleId.Duck,
             displayName = "\u5357\u6e56\u5c0f\u9e2d",
             modelName = "Duck",
-            portraitResourceName = "duck",
+            portraitResourceName = "role_2",
             cultureTheme = "\u5357\u6e56\u7ea2\u8239 / \u6c34\u4e61\u6cb3\u9053",
             backgroundSummary = "\u4ece\u5c0f\u5728\u5357\u6e56\u8fb9\u957f\u5927\u7684\u5c0f\u9e2d\uff0c\u719f\u6089\u6c34\u8def\uff0c\u4e5f\u542c\u8fc7\u5f88\u591a\u7ea2\u8239\u6545\u4e8b\u3002",
             skillName = "\u987a\u6c34\u542f\u822a",
@@ -43,7 +43,7 @@ public static class GameRoleCatalog
             roleId = RoleId.Rabbit,
             displayName = "\u84dd\u5370\u5c0f\u5154",
             modelName = "Rabbit",
-            portraitResourceName = "rabbit",
+            portraitResourceName = "role_0",
             cultureTheme = "\u84dd\u5370\u82b1\u5e03 / \u4f20\u7edf\u67d3\u7ec7",
             backgroundSummary = "\u5728\u84dd\u5370\u82b1\u5e03\u9986\u5e2e\u5fd9\u7684\u5c0f\u5154\u5de5\u5320\uff0c\u8033\u6735\u4e0a\u7cfb\u7740\u84dd\u767d\u82b1\u5e03\u3002",
             skillName = "\u5de7\u624b\u8bae\u4ef7",
@@ -54,7 +54,7 @@ public static class GameRoleCatalog
             roleId = RoleId.Panda,
             displayName = "\u7cbd\u9999\u718a\u732b",
             modelName = "Panda",
-            portraitResourceName = "panda",
+            portraitResourceName = "role_1",
             cultureTheme = "\u4e94\u82b3\u658b\u7cbd\u5b50 / \u5609\u5174\u98ce\u7269",
             backgroundSummary = "\u80cc\u7740\u7cbd\u5b50\u7bee\u7684\u5c0f\u718a\u732b\u53a8\u5e08\uff0c\u662f\u961f\u4f0d\u91cc\u7684\u8865\u7ed9\u62c5\u5f53\u3002",
             skillName = "\u7cbd\u9999\u8865\u7ed9",
@@ -65,7 +65,7 @@ public static class GameRoleCatalog
             roleId = RoleId.Dog,
             displayName = "\u6708\u6cb3\u5c0f\u72d7",
             modelName = "Dog",
-            portraitResourceName = "dog",
+            portraitResourceName = "role_3",
             cultureTheme = "\u6708\u6cb3\u5386\u53f2\u8857\u533a / \u8001\u8857\u5e02\u96c6",
             backgroundSummary = "\u4f4f\u5728\u6708\u6cb3\u8001\u8857\u7684\u5c0f\u72d7\u638c\u67dc\uff0c\u5f88\u4f1a\u62db\u547c\u6e38\u5ba2\u548c\u505a\u5c0f\u751f\u610f\u3002",
             skillName = "\u5e02\u96c6\u638c\u67dc",
@@ -167,6 +167,12 @@ public class PlayerManager : MonoBehaviour
     public float playerModelScale = 0.5f;
     public bool enableDebugSpaceMove;
 
+    [Header("Role Y Offsets")]
+    public float duckYOffset;
+    public float rabbitYOffset;
+    public float pandaYOffset;
+    public float dogYOffset;
+
     [Header("Turn Marker")]
     public bool showActiveTurnMarker = true;
     public float turnMarkerMinHeight = 1.3f;
@@ -200,6 +206,7 @@ public class PlayerManager : MonoBehaviour
     private Transform _activeHighlightRoot;
     private GameObject _turnMarkerPrefab;
     private Material _activeHighlightMaterial;
+    private readonly List<float> _lastAppliedPlayerYOffsets = new List<float>();
 
     public int mapCount => mapRoot != null ? mapRoot.childCount : 0;
 
@@ -278,7 +285,7 @@ public class PlayerManager : MonoBehaviour
 
             if (mapRoot != null && mapRoot.childCount > 0)
             {
-                playerInstance.transform.position = GetTileCenterPosition(0);
+                playerInstance.transform.position = GetTileCenterPosition(0) + Vector3.up * GetRoleYOffset(roleId);
             }
 
             if (playerModel != null)
@@ -303,6 +310,7 @@ public class PlayerManager : MonoBehaviour
         }
 
         RefreshPlayerPositions();
+        CapturePlayerYOffsets();
         UpdateTurnMarkers();
         UpdateActivePlayerHighlights();
     }
@@ -469,6 +477,7 @@ public class PlayerManager : MonoBehaviour
 
     public void Update()
     {
+        ApplyPlayerYOffsetChange();
         UpdateTurnMarkers();
         UpdateActivePlayerHighlights();
 
@@ -507,6 +516,11 @@ public class PlayerManager : MonoBehaviour
         }
 
         return mapRoot.GetChild(tileIndex).position;
+    }
+
+    private Vector3 GetPlayerTileCenterPosition(int playerIndex, int tileIndex)
+    {
+        return GetTileCenterPosition(tileIndex) + Vector3.up * GetPlayerYOffset(playerIndex);
     }
 
     private List<int> GetPlayersOnTile(int tileIndex)
@@ -557,7 +571,7 @@ public class PlayerManager : MonoBehaviour
 
     private Vector3 GetPackedTilePosition(int playerIndex, int tileIndex)
     {
-        Vector3 center = GetTileCenterPosition(tileIndex);
+        Vector3 center = GetPlayerTileCenterPosition(playerIndex, tileIndex);
         List<int> players = GetPlayersOnTile(tileIndex);
 
         int slotIndex = players.IndexOf(playerIndex);
@@ -582,7 +596,69 @@ public class PlayerManager : MonoBehaviour
             if (playerIndex < 0 || playerIndex >= playerList.Count) continue;
             if (playerList[playerIndex] == null) continue;
 
-            MovePlayerToPackedPosition(playerIndex, GetTileCenterPosition(tileIndex) + GetPackedOffset(i, players.Count), smooth);
+            MovePlayerToPackedPosition(playerIndex, GetPlayerTileCenterPosition(playerIndex, tileIndex) + GetPackedOffset(i, players.Count), smooth);
+        }
+    }
+
+    private void ApplyPlayerYOffsetChange()
+    {
+        while (_lastAppliedPlayerYOffsets.Count < playerList.Count)
+        {
+            _lastAppliedPlayerYOffsets.Add(GetPlayerYOffset(_lastAppliedPlayerYOffsets.Count));
+        }
+
+        if (_lastAppliedPlayerYOffsets.Count > playerList.Count)
+        {
+            _lastAppliedPlayerYOffsets.RemoveRange(playerList.Count, _lastAppliedPlayerYOffsets.Count - playerList.Count);
+        }
+
+        for (int i = 0; i < playerList.Count; i++)
+        {
+            float currentYOffset = GetPlayerYOffset(i);
+            float previousYOffset = _lastAppliedPlayerYOffsets[i];
+            if (Mathf.Approximately(previousYOffset, currentYOffset))
+            {
+                continue;
+            }
+
+            GameObject player = playerList[i];
+            if (player != null)
+            {
+                player.transform.position += Vector3.up * (currentYOffset - previousYOffset);
+            }
+
+            _lastAppliedPlayerYOffsets[i] = currentYOffset;
+        }
+    }
+
+    private void CapturePlayerYOffsets()
+    {
+        _lastAppliedPlayerYOffsets.Clear();
+        for (int i = 0; i < playerList.Count; i++)
+        {
+            _lastAppliedPlayerYOffsets.Add(GetPlayerYOffset(i));
+        }
+    }
+
+    private float GetPlayerYOffset(int playerIndex)
+    {
+        return GetRoleYOffset(GetPlayerRoleId(playerIndex));
+    }
+
+    private float GetRoleYOffset(RoleId roleId)
+    {
+        switch (roleId)
+        {
+            case RoleId.Duck:
+                return duckYOffset;
+            case RoleId.Rabbit:
+                return rabbitYOffset;
+            case RoleId.Panda:
+                return pandaYOffset;
+            case RoleId.Dog:
+                return dogYOffset;
+            default:
+                return 0f;
         }
     }
 

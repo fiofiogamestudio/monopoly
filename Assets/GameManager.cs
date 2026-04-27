@@ -18,6 +18,8 @@ public class GameManager : MonoBehaviour
 {
     public const int DefaultStartMoney = 8000;
     public const int DefaultTargetMoneyToWin = 18000;
+    private const string BuyablePropertySignText = "\u53ef\u8d2d\u4e70";
+    private static readonly Color BuyablePropertySignColor = new Color(0.22f, 0.62f, 0.36f, 1f);
 
     [Header("Refs")]
     public PlayerManager playerManager;
@@ -44,7 +46,7 @@ public class GameManager : MonoBehaviour
     public List<List<int>> playerOwnedTilesList = new List<List<int>>();
 
     [Header("Cards")]
-    [Range(1, 5)] public int maxToolCardsPerPlayer = 3;
+    [Range(1, 5)] public int maxToolCardsPerPlayer = 5;
 
     [Header("AI")]
     [Range(0f, 1f)] public float aiQuestionCorrectChance = 0.65f;
@@ -53,6 +55,7 @@ public class GameManager : MonoBehaviour
 
     [Header("Runtime Status")]
     public Status status;
+    public int turnNumber;
     public int currentPlayerIndex;
     public int lastDiceValue;
 
@@ -180,7 +183,48 @@ public class GameManager : MonoBehaviour
 
     public bool CanHumanUseToolCards(int playerIndex)
     {
-        return !_gameEnded && !_HasBlockingInteraction() && !_IsCurrentPlayerAI() && _allowHumanInput && status == Status.PlayerAction && playerIndex == currentPlayerIndex && IsPlayerAlive(playerIndex) && playerIndex >= 0 && playerIndex < playerToolCardsList.Count && playerToolCardsList[playerIndex].Count > 0;
+        return HasHumanToolCardInput(playerIndex) && playerToolCardsList[playerIndex].Count > 0;
+    }
+
+    public bool CanHumanUseToolCard(int playerIndex, int cardIndex)
+    {
+        if (!HasHumanToolCardInput(playerIndex)) return false;
+        if (cardIndex < 0 || cardIndex >= playerToolCardsList[playerIndex].Count) return false;
+
+        return IsToolCardUsableInStatus(playerToolCardsList[playerIndex][cardIndex], status);
+    }
+
+    private bool HasHumanToolCardInput(int playerIndex)
+    {
+        bool activeHumanPhase = status == Status.PlayerMove || status == Status.PlayerAction;
+        return !_gameEnded && !_HasBlockingInteraction() && !_IsCurrentPlayerAI() && _allowHumanInput && activeHumanPhase && playerIndex == currentPlayerIndex && IsPlayerAlive(playerIndex) && playerIndex >= 0 && playerIndex < playerToolCardsList.Count;
+    }
+
+    private bool IsToolCardUsableInStatus(CardData card, Status useStatus)
+    {
+        if (card == null || string.IsNullOrWhiteSpace(card.effect)) return false;
+        if (useStatus == Status.PlayerAction) return true;
+
+        if (useStatus == Status.PlayerMove)
+        {
+            string effectKey = GetEffectKey(card.effect);
+            return effectKey == "skip_protect"
+                || effectKey == "move"
+                || effectKey == "gain"
+                || effectKey == "rent_discount"
+                || effectKey == "buy_rebate";
+        }
+
+        return false;
+    }
+
+    private string GetEffectKey(string effect)
+    {
+        if (string.IsNullOrWhiteSpace(effect)) return string.Empty;
+
+        int commaIndex = effect.IndexOf(',');
+        string key = commaIndex >= 0 ? effect.Substring(0, commaIndex) : effect;
+        return key.Trim().Replace(" ", string.Empty).ToLowerInvariant();
     }
 
     public bool ShouldShowHumanHand()
@@ -192,6 +236,61 @@ public class GameManager : MonoBehaviour
     {
         return playerIndex >= 0 && playerIndex < playerToolCardsList.Count ? playerToolCardsList[playerIndex] : new List<CardData>();
     }
+
+#if UNITY_EDITOR
+    public CardData EditorGiveRandomToolCardToCurrentPlayer()
+    {
+        int playerIndex = currentPlayerIndex;
+        if (playerIndex < 0 || playerIndex >= playerToolCardsList.Count || !IsPlayerAlive(playerIndex))
+        {
+            Debug.LogWarning("[Editor] Q \u6d4b\u8bd5\u53d1\u724c\u5931\u8d25\uff1a\u5f53\u524d\u73a9\u5bb6\u65e0\u6548\u6216\u5df2\u51fa\u5c40\u3002");
+            return null;
+        }
+
+        CardData card = PickToolCard();
+        if (card == null)
+        {
+            Debug.LogWarning("[Editor] Q \u6d4b\u8bd5\u53d1\u724c\u5931\u8d25\uff1a\u9053\u5177\u5361\u6c60\u4e3a\u7a7a\u3002");
+            return null;
+        }
+
+        AddToolCardToHand(playerIndex, card);
+        Debug.Log($"[Editor] Q \u6d4b\u8bd5\u53d1\u724c\uff1a{GetPlayerDisplayName(playerIndex)} \u83b7\u5f97 {card.cardName}");
+        return card;
+    }
+
+    public QuestionData EditorShowRandomQuestion()
+    {
+        QuestionData question = PickQuestion();
+        if (question == null)
+        {
+            Debug.LogWarning("[Editor] E \u6d4b\u8bd5\u63d0\u95ee\u5931\u8d25\uff1a\u9898\u5e93\u4e3a\u7a7a\u3002");
+            return null;
+        }
+
+        if (UIManager.Instance == null)
+        {
+            Debug.LogWarning("[Editor] E \u6d4b\u8bd5\u63d0\u95ee\u5931\u8d25\uff1aUIManager \u4e0d\u5b58\u5728\u3002");
+            return question;
+        }
+
+        Debug.Log($"[Editor] E \u6d4b\u8bd5\u63d0\u95ee\uff1a[{question.category}] {question.text}");
+        UIManager.Instance.ShowQuestion(question, selectedIndex =>
+        {
+            bool correct = selectedIndex == question.answerIndex;
+            string selectedText = question.options != null && selectedIndex >= 0 && selectedIndex < question.options.Length
+                ? question.options[selectedIndex]
+                : "\u672a\u77e5\u9009\u9879";
+            string title = correct ? "\u6d4b\u8bd5\uff1a\u56de\u7b54\u6b63\u786e" : "\u6d4b\u8bd5\uff1a\u56de\u7b54\u9519\u8bef";
+            string body = $"\u4f60\u9009\u62e9\uff1a{selectedText}\n\u6b63\u786e\u7b54\u6848\uff1a{GetAnswerText(question)}\n{question.explain}";
+
+            Debug.Log($"[Editor] E \u6d4b\u8bd5\u7b54\u9898\uff1a\u9009\u62e9 {selectedText}\uff0c\u6b63\u786e\u7b54\u6848 {GetAnswerText(question)}");
+            UIManager.Instance.ShowNotice(title, body, "\u7ee7\u7eed");
+        });
+
+        return question;
+    }
+#endif
 
     public void RequestRollDice()
     {
@@ -210,9 +309,8 @@ public class GameManager : MonoBehaviour
 
     public void RequestUseToolCard(int cardIndex)
     {
-        if (!CanHumanUseToolCards(currentPlayerIndex)) return;
-        List<CardData> cards = GetPlayerToolCards(currentPlayerIndex);
-        if (cardIndex >= 0 && cardIndex < cards.Count) _requestedToolCardIndex = cardIndex;
+        if (!CanHumanUseToolCard(currentPlayerIndex, cardIndex)) return;
+        _requestedToolCardIndex = cardIndex;
     }
 
     public int GetPlayerCurrentTileIndexSafe(int playerIndex)
@@ -255,6 +353,8 @@ public class GameManager : MonoBehaviour
         EnsureCardBanksLoaded();
 
         currentPlayerIndex = FindFirstAlivePlayer();
+        turnNumber = 0;
+        lastDiceValue = 0;
         status = Status.PlayerMove;
 
         while (!_gameEnded)
@@ -276,6 +376,9 @@ public class GameManager : MonoBehaviour
                 yield return null;
                 continue;
             }
+
+            turnNumber += 1;
+            lastDiceValue = 0;
 
             if (TryResolveSkipTurnAtTurnStart(currentPlayerIndex))
             {
@@ -303,7 +406,18 @@ public class GameManager : MonoBehaviour
         _requestedToolCardIndex = -1;
 
 
-        yield return new WaitUntil(() => _rollRequested || _gameEnded || !IsPlayerAlive(playerIndex));
+        while (!_rollRequested && !_gameEnded && IsPlayerAlive(playerIndex))
+        {
+            yield return new WaitUntil(() => _rollRequested || _gameEnded || !IsPlayerAlive(playerIndex) || _requestedToolCardIndex >= 0);
+
+            if (_requestedToolCardIndex >= 0)
+            {
+                int cardIndex = _requestedToolCardIndex;
+                _requestedToolCardIndex = -1;
+                yield return UseToolCard(playerIndex, cardIndex);
+            }
+        }
+
         if (_gameEnded || !IsPlayerAlive(playerIndex))
         {
             _allowHumanInput = false;
@@ -426,6 +540,7 @@ public class GameManager : MonoBehaviour
         if (playerIndex < 0 || playerIndex >= playerToolCardsList.Count) yield break;
         if (cardIndex < 0 || cardIndex >= playerToolCardsList[playerIndex].Count) yield break;
 
+        Status resumeStatus = status;
         CardData card = playerToolCardsList[playerIndex][cardIndex];
         playerToolCardsList[playerIndex].RemoveAt(cardIndex);
         Debug.Log($"[Tool] {GetPlayerDisplayName(playerIndex)} \u4f7f\u7528\u9053\u5177\u5361\uff1a{card.cardName}");
@@ -436,7 +551,14 @@ public class GameManager : MonoBehaviour
 
         if (!_gameEnded && IsPlayerAlive(playerIndex))
         {
-            status = IsAI(playerIndex) ? Status.AIAction : Status.PlayerAction;
+            if (IsAI(playerIndex))
+            {
+                status = Status.AIAction;
+            }
+            else
+            {
+                status = resumeStatus == Status.PlayerMove ? Status.PlayerMove : Status.PlayerAction;
+            }
         }
     }
 
@@ -1091,7 +1213,7 @@ public class GameManager : MonoBehaviour
         int ownerIndex = tileOwnerList[tileIndex];
         if (ownerIndex < 0 || !IsPlayerAlive(ownerIndex))
         {
-            tileController.SetOwnerSign(string.Empty, Color.white, false);
+            tileController.SetOwnerSign(BuyablePropertySignText, BuyablePropertySignColor, true);
             return;
         }
 
@@ -1465,14 +1587,20 @@ public class GameManager : MonoBehaviour
 
     private void FX_tool()
     {
+        StartManagedResolution(CoResolveToolCard(_fxPlayer));
+    }
+
+    private IEnumerator CoResolveToolCard(int playerIndex)
+    {
         CardData card = PickToolCard();
         if (card == null)
         {
             Debug.LogWarning("[Tool] \u9053\u5177\u5361\u6c60\u4e3a\u7a7a\u3002");
-            return;
+            yield break;
         }
 
-        AddToolCardToHand(_fxPlayer, card);
+        AddToolCardToHand(playerIndex, card);
+        yield return ShowCardNoticeIfHuman(playerIndex, "\u62bd\u5230\u9053\u5177\u5361", card);
     }
 
     private void FX_destiny()
@@ -1490,9 +1618,22 @@ public class GameManager : MonoBehaviour
         }
 
         Debug.Log($"[Luck] {GetPlayerDisplayName(playerIndex)} \u62bd\u5230\u8fd0\u6c14\u5361\uff1a{card.cardName} - {card.description}");
+        yield return ShowCardNoticeIfHuman(playerIndex, "\u62bd\u5230\u8fd0\u6c14\u5361", card);
         int baseline = _activeResolutionCount;
         ExecuteEffectByInvoke(card.effect, playerIndex, tileIndex, false);
         yield return WaitForResolutionCount(baseline);
+    }
+
+    private IEnumerator ShowCardNoticeIfHuman(int playerIndex, string title, CardData card)
+    {
+        if (IsAI(playerIndex) || UIManager.Instance == null || card == null)
+        {
+            yield break;
+        }
+
+        bool confirmed = false;
+        UIManager.Instance.ShowCardNotice(title, card, "\u7ee7\u7eed", () => confirmed = true);
+        yield return new WaitUntil(() => confirmed || _gameEnded);
     }
 
     private void FX_get_from_others()

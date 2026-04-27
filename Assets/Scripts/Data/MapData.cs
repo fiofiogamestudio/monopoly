@@ -161,6 +161,7 @@ public class CardData
     public string id;
     public string cardName;
     public string description;
+    public string spriteName;
     public string effect;
 }
 
