@@ -1342,7 +1342,14 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        Invoke(methodName, 0f);
+        try
+        {
+            methodInfo.Invoke(this, null);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[Effect] Handler failed: {methodName}\n{e}");
+        }
     }
 
     private int FX_ArgInt(int idx, int defaultValue = 0)
@@ -1445,13 +1452,18 @@ public class GameManager : MonoBehaviour
 
     private void StartManagedResolution(IEnumerator routine)
     {
+        if (routine == null)
+        {
+            return;
+        }
+
+        _activeResolutionCount += 1;
+        if (!_gameEnded) status = Status.Resolving;
         StartCoroutine(RunManagedResolution(routine));
     }
 
     private IEnumerator RunManagedResolution(IEnumerator routine)
     {
-        _activeResolutionCount += 1;
-        if (!_gameEnded) status = Status.Resolving;
         yield return routine;
         _activeResolutionCount = Mathf.Max(0, _activeResolutionCount - 1);
     }

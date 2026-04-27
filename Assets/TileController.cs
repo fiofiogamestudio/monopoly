@@ -27,7 +27,7 @@ public class TileController : MonoBehaviour
     private const float TileNameTextBaseCharacterSize = 0.015f;
     private const int TileNameTextFontSize = 128;
     private const int SignSortingOrder = 260;
-    private const int TileNameSortingOrder = 240;
+    private const int TileNameSortingOrder = -50;
     private static readonly string[] StyledRendererPaths =
     {
         "BaseFrame",
@@ -52,9 +52,11 @@ public class TileController : MonoBehaviour
     };
 
     private static Shader tileShader;
+    private static Shader depthTestedTextShader;
     private static Font labelFont;
     private static Font tileNameFont;
     private static Font tileNameFallbackFont;
+    private static readonly Dictionary<Font, Material> tileNameTextMaterials = new Dictionary<Font, Material>();
 
     public TileData tileData;
     public Text gridText;
@@ -246,7 +248,7 @@ public class TileController : MonoBehaviour
 
         if (tileNameTextMesh != null)
         {
-            string tileLabel = tileData != null ? FormatTileNameLabel(tileData.tileName) : string.Empty;
+            string tileLabel = IsPropertyTile(tileData) ? FormatTileNameLabel(tileData.tileName) : string.Empty;
             Font resolvedTileNameFont = ResolveTileNameFont(tileLabel);
             tileNameTextMesh.font = resolvedTileNameFont;
             tileNameTextMesh.text = tileLabel;
@@ -267,9 +269,10 @@ public class TileController : MonoBehaviour
             MeshRenderer textRenderer = tileNameTextMesh.GetComponent<MeshRenderer>();
             if (textRenderer != null)
             {
-                if (resolvedTileNameFont != null && resolvedTileNameFont.material != null)
+                Material textMaterial = GetTileNameTextMaterial(resolvedTileNameFont);
+                if (textMaterial != null)
                 {
-                    textRenderer.sharedMaterial = resolvedTileNameFont.material;
+                    textRenderer.sharedMaterial = textMaterial;
                 }
 
                 textRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -282,7 +285,7 @@ public class TileController : MonoBehaviour
 
         if (tileNameTextMesh != null)
         {
-            bool hasName = tileData != null && !string.IsNullOrWhiteSpace(tileData.tileName);
+            bool hasName = IsPropertyTile(tileData) && !string.IsNullOrWhiteSpace(tileData.tileName);
             tileNameTextMesh.gameObject.SetActive(hasName);
         }
     }
@@ -610,6 +613,72 @@ public class TileController : MonoBehaviour
         }
 
         textMesh.characterSize = TileNameTextBaseCharacterSize;
+    }
+
+    private static Material GetTileNameTextMaterial(Font font)
+    {
+        if (font == null || font.material == null)
+        {
+            return null;
+        }
+
+        if (tileNameTextMaterials.TryGetValue(font, out Material cachedMaterial) && cachedMaterial != null)
+        {
+            SyncFontTexture(cachedMaterial, font);
+            return cachedMaterial;
+        }
+
+        Shader shader = ResolveDepthTestedTextShader();
+        if (shader == null)
+        {
+            return font.material;
+        }
+
+        Material material = new Material(shader)
+        {
+            name = $"TileNameText_{font.name}",
+            hideFlags = HideFlags.HideAndDontSave,
+            renderQueue = 3000
+        };
+
+        SyncFontTexture(material, font);
+        tileNameTextMaterials[font] = material;
+        return material;
+    }
+
+    private static Shader ResolveDepthTestedTextShader()
+    {
+        if (depthTestedTextShader != null)
+        {
+            return depthTestedTextShader;
+        }
+
+        depthTestedTextShader = Resources.Load<Shader>("Shaders/DepthTestedText");
+        if (depthTestedTextShader == null)
+        {
+            depthTestedTextShader = Shader.Find("Monopoly/DepthTestedText");
+        }
+
+        return depthTestedTextShader;
+    }
+
+    private static void SyncFontTexture(Material material, Font font)
+    {
+        if (material == null || font == null || font.material == null)
+        {
+            return;
+        }
+
+        Texture fontTexture = font.material.mainTexture;
+        if (fontTexture != null && material.HasProperty("_MainTex"))
+        {
+            material.SetTexture("_MainTex", fontTexture);
+        }
+
+        if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", Color.white);
+        }
     }
 
     private void DestroyGeneratedRuntimeLabels()
@@ -1093,6 +1162,11 @@ public class TileController : MonoBehaviour
         }
 
         return string.Join("\n", lines);
+    }
+
+    private static bool IsPropertyTile(TileData data)
+    {
+        return data != null && data.tileCost > 0;
     }
 
     private static string FormatOwnerLabel(string ownerName)
