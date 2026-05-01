@@ -118,16 +118,134 @@ public static class GameRoleCatalog
 
 public static class GameSessionConfig
 {
+    public const int MinPlayerCount = 1;
+    public const int MaxPlayerCount = 4;
+
     public static RoleId HumanRole { get; private set; } = RoleId.Duck;
+    public static int PlayerCount { get; private set; } = GameRoleCatalog.AllRoles.Count;
+    public static List<RoleId> SelectedRoles { get; private set; } = new List<RoleId>();
+    public static bool HasExplicitSelection { get; private set; }
 
     public static void SetHumanRole(RoleId roleId)
     {
         HumanRole = roleId;
+        SelectedRoles = new List<RoleId>();
+        HasExplicitSelection = false;
+    }
+
+    public static void SetPlayerCount(int count)
+    {
+        PlayerCount = Mathf.Clamp(count, MinPlayerCount, MaxPlayerCount);
+    }
+
+    public static void SetSelectedRoles(List<RoleId> roles)
+    {
+        SelectedRoles = SanitizeRoleList(roles);
+        HasExplicitSelection = SelectedRoles.Count > 0;
+        if (HasExplicitSelection)
+        {
+            PlayerCount = SelectedRoles.Count;
+            HumanRole = SelectedRoles[0];
+        }
+    }
+
+    public static void SetLocalPlayers(int playerCount, List<RoleId> roles)
+    {
+        PlayerCount = Mathf.Clamp(playerCount, MinPlayerCount, MaxPlayerCount);
+        SelectedRoles = SanitizeRoleList(roles);
+
+        while (SelectedRoles.Count < PlayerCount)
+        {
+            SelectedRoles.Add(GetFirstUnusedRole(SelectedRoles));
+        }
+
+        if (SelectedRoles.Count > PlayerCount)
+        {
+            SelectedRoles.RemoveRange(PlayerCount, SelectedRoles.Count - PlayerCount);
+        }
+
+        HasExplicitSelection = SelectedRoles.Count > 0;
+        if (HasExplicitSelection)
+        {
+            HumanRole = SelectedRoles[0];
+        }
+    }
+
+    public static void ResetSelection()
+    {
+        SelectedRoles = new List<RoleId>();
+        HasExplicitSelection = false;
+        PlayerCount = GameRoleCatalog.AllRoles.Count;
     }
 
     public static List<RoleId> BuildSessionRoleOrder(int totalPlayers)
     {
+        if (HasExplicitSelection && SelectedRoles.Count > 0)
+        {
+            List<RoleId> order = new List<RoleId>(SelectedRoles);
+
+            while (order.Count < totalPlayers)
+            {
+                order.Add(GetFirstUnusedRole(order));
+            }
+
+            if (order.Count > totalPlayers)
+            {
+                order.RemoveRange(totalPlayers, order.Count - totalPlayers);
+            }
+
+            return order;
+        }
+
         return GameRoleCatalog.BuildRoleOrder(HumanRole, totalPlayers);
+    }
+
+    public static List<bool> BuildSessionAIList(int totalPlayers)
+    {
+        List<bool> aiList = new List<bool>();
+        int localPlayerCount = HasExplicitSelection ? Mathf.Min(PlayerCount, totalPlayers) : 1;
+
+        for (int i = 0; i < totalPlayers; i++)
+        {
+            aiList.Add(i >= localPlayerCount);
+        }
+
+        return aiList;
+    }
+
+    private static List<RoleId> SanitizeRoleList(List<RoleId> roles)
+    {
+        List<RoleId> sanitized = new List<RoleId>();
+        if (roles == null)
+        {
+            return sanitized;
+        }
+
+        for (int i = 0; i < roles.Count && sanitized.Count < MaxPlayerCount; i++)
+        {
+            RoleId roleId = roles[i];
+            if (!sanitized.Contains(roleId))
+            {
+                sanitized.Add(roleId);
+            }
+        }
+
+        return sanitized;
+    }
+
+    private static RoleId GetFirstUnusedRole(List<RoleId> usedRoles)
+    {
+        for (int i = 0; i < GameRoleCatalog.AllRoles.Count; i++)
+        {
+            RoleId roleId = GameRoleCatalog.AllRoles[i].roleId;
+            if (usedRoles == null || !usedRoles.Contains(roleId))
+            {
+                return roleId;
+            }
+        }
+
+        int fallbackIndex = usedRoles != null ? usedRoles.Count % GameRoleCatalog.AllRoles.Count : 0;
+        return GameRoleCatalog.AllRoles[fallbackIndex].roleId;
     }
 }
 
@@ -227,7 +345,32 @@ public class PlayerManager : MonoBehaviour
 
     public string GetPlayerDisplayName(int playerIndex)
     {
+        return GetPlayerLabel(playerIndex);
+    }
+
+    public string GetPlayerRoleDisplayName(int playerIndex)
+    {
         return GameRoleCatalog.Get(GetPlayerRoleId(playerIndex)).displayName;
+    }
+
+    public string GetPlayerLabel(int playerIndex)
+    {
+        return IsAIControlled(playerIndex) ? "AI" : $"P{playerIndex + 1}";
+    }
+
+    private string GetGeneratedPlayerLabel(int playerIndex)
+    {
+        if (GameSessionConfig.HasExplicitSelection)
+        {
+            return playerIndex >= GameSessionConfig.PlayerCount ? "AI" : $"P{playerIndex + 1}";
+        }
+
+        if (gameManager != null)
+        {
+            return gameManager.IsAIPlayer(playerIndex) ? "AI" : $"P{playerIndex + 1}";
+        }
+
+        return playerIndex == 0 ? "P1" : "AI";
     }
 
     public Transform GetPlayerTransform(int playerIndex)
@@ -271,7 +414,9 @@ public class PlayerManager : MonoBehaviour
         playerIsMovingList.Clear();
         playerTileIndexList.Clear();
 
-        int playerCount = gameManager != null ? gameManager.totalPlayers : GameRoleCatalog.AllRoles.Count;
+        int playerCount = GameSessionConfig.HasExplicitSelection
+            ? GameRoleCatalog.AllRoles.Count
+            : (gameManager != null ? gameManager.totalPlayers : GameRoleCatalog.AllRoles.Count);
         List<RoleId> roleOrder = GameSessionConfig.BuildSessionRoleOrder(playerCount);
 
         for (int i = 0; i < playerCount; i++)
@@ -281,7 +426,7 @@ public class PlayerManager : MonoBehaviour
             GameObject playerModel = Resources.Load<GameObject>($"Prefabs/PlayerModels/{role.modelName}");
 
             GameObject playerInstance = Instantiate(playerPrefab, playerRoot);
-            playerInstance.name = role.displayName;
+            playerInstance.name = $"{GetGeneratedPlayerLabel(i)}: {role.displayName}";
 
             if (mapRoot != null && mapRoot.childCount > 0)
             {
@@ -840,7 +985,7 @@ public class PlayerManager : MonoBehaviour
                 highlight.root.gameObject.SetActive(true);
             }
 
-            bool isAI = gameManager != null ? gameManager.IsAIPlayer(i) : i != 0;
+            bool isAI = IsAIControlled(i);
             Color color = isAI ? aiHighlightColor : humanHighlightColor;
             float pulseScale = 1f + (Mathf.Sin((Time.unscaledTime + i * 0.11f) * activeHighlightPulseSpeed) * 0.5f + 0.5f) * activeHighlightPulse;
 
@@ -1180,7 +1325,7 @@ public class PlayerManager : MonoBehaviour
             return;
         }
 
-        bool isAI = gameManager != null ? gameManager.IsAIPlayer(playerIndex) : playerIndex != 0;
+        bool isAI = IsAIControlled(playerIndex);
         Color markerColor = isAI ? aiMarkerColor : humanMarkerColor;
         Color identityColor = isAI ? aiBadgeColor : humanBadgeColor;
 
@@ -1191,12 +1336,26 @@ public class PlayerManager : MonoBehaviour
 
         if (marker.identityText != null)
         {
-            marker.identityText.text = isAI ? "AI" : "\u73a9\u5bb6";
+            marker.identityText.text = isAI ? "AI" : $"P{playerIndex + 1}";
             marker.identityText.color = identityColor;
         }
 
         marker.lastIsAI = isAI;
     }
 
-}
+    private bool IsAIControlled(int playerIndex)
+    {
+        if (gameManager != null)
+        {
+            return gameManager.IsAIPlayer(playerIndex);
+        }
 
+        if (GameSessionConfig.HasExplicitSelection)
+        {
+            return playerIndex >= GameSessionConfig.PlayerCount;
+        }
+
+        return playerIndex != 0;
+    }
+
+}

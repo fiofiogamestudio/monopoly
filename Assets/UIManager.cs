@@ -1362,7 +1362,7 @@ public class UIManager : MonoBehaviour
                 continue;
             }
             item.SetName(GetPlayerName(i));
-            item.SetControlTag(gameManager.IsAIPlayer(i) ? "AI" : "\u73a9\u5bb6");
+            item.SetControlTag(string.Empty);
             item.SetAvatar(GetPlayerAvatar(i));
             item.SetMoney(GetDisplayedMoneyValue(i, gameManager.GetMoney(i)));
             item.SetOwnedPropertySummary(gameManager.GetOwnedPropertySummary(i));

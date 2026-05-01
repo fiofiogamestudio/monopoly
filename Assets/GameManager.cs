@@ -25,7 +25,7 @@ public class GameManager : MonoBehaviour
     public PlayerManager playerManager;
 
     [Header("Game Setup")]
-    [Range(2, 6)] public int totalPlayers = 4;
+    [Range(1, 6)] public int totalPlayers = 4;
     public List<bool> isAIPlayer = new List<bool>();
 
     [Header("Dice")]
@@ -90,6 +90,7 @@ public class GameManager : MonoBehaviour
     private void Awake()
     {
         LoadGameConfig();
+        ApplySessionConfig();
         if (isAIPlayer == null) isAIPlayer = new List<bool>();
         NormalizeAIList();
         InitMoneyList();
@@ -359,7 +360,17 @@ public class GameManager : MonoBehaviour
 
         while (!_gameEnded)
         {
-            if (GetAlivePlayerCount() <= 1)
+            int alivePlayerCount = GetAlivePlayerCount();
+            if (alivePlayerCount <= 0)
+            {
+                FinishGame(-1);
+                break;
+            }
+
+            // The "last survivor" victory only makes sense when there are at
+            // least two players. For a solo session the player has to reach
+            // the money target to win.
+            if (totalPlayers >= 2 && alivePlayerCount <= 1)
             {
                 FinishGame(FindFirstAlivePlayer());
                 break;
@@ -611,6 +622,12 @@ public class GameManager : MonoBehaviour
 
     private void NormalizeAIList()
     {
+        if (GameSessionConfig.HasExplicitSelection)
+        {
+            isAIPlayer = GameSessionConfig.BuildSessionAIList(totalPlayers);
+            return;
+        }
+
         if (isAIPlayer.Count == 0)
         {
             for (int i = 0; i < totalPlayers; i++) isAIPlayer.Add(i != 0);
@@ -666,21 +683,19 @@ public class GameManager : MonoBehaviour
         try
         {
             GameConfigData config = DataLoader.LoadJson<GameConfigData>("game_config");
-            if (config == null)
+            if (config != null)
             {
-                return;
-            }
+                if (config.startMoney > 0)
+                {
+                    startMoney = config.startMoney;
+                }
 
-            if (config.startMoney > 0)
-            {
-                startMoney = config.startMoney;
-            }
+                enableTargetMoneyVictory = config.enableTargetMoneyVictory;
 
-            enableTargetMoneyVictory = config.enableTargetMoneyVictory;
-
-            if (config.targetMoneyToWin > 0)
-            {
-                targetMoneyToWin = config.targetMoneyToWin;
+                if (config.targetMoneyToWin > 0)
+                {
+                    targetMoneyToWin = config.targetMoneyToWin;
+                }
             }
         }
         catch (Exception e)
@@ -693,6 +708,18 @@ public class GameManager : MonoBehaviour
         {
             targetMoneyToWin = Mathf.Max(startMoney + 1000, targetMoneyToWin);
         }
+
+    }
+
+    private void ApplySessionConfig()
+    {
+        if (!GameSessionConfig.HasExplicitSelection)
+        {
+            totalPlayers = Mathf.Max(1, totalPlayers);
+            return;
+        }
+
+        totalPlayers = GameRoleCatalog.AllRoles.Count;
     }
 
     private void InitPropertyListsIfNeeded()
@@ -891,7 +918,15 @@ public class GameManager : MonoBehaviour
         }
 
         Debug.Log($"[Bankrupt] {GetPlayerDisplayName(playerIndex)} \u5df2\u51fa\u5c40\uff0c\u539f\u56e0\uff1a{reason}");
-        if (GetAlivePlayerCount() <= 1) FinishGame(FindFirstAlivePlayer());
+        int alivePlayerCount = GetAlivePlayerCount();
+        if (alivePlayerCount <= 0)
+        {
+            FinishGame(-1);
+        }
+        else if (totalPlayers >= 2 && alivePlayerCount <= 1)
+        {
+            FinishGame(FindFirstAlivePlayer());
+        }
     }
 
     private void ReleasePlayerProperties(int playerIndex)
@@ -1738,4 +1773,3 @@ public class GameManager : MonoBehaviour
         return tileIndex == 0 || (!string.IsNullOrEmpty(tileData.tileID) && tileData.tileID.StartsWith("ST", StringComparison.OrdinalIgnoreCase));
     }
 }
-

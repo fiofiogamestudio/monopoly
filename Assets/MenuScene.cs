@@ -20,10 +20,15 @@ public class MenuScene : MonoBehaviour
     private const float NavButtonVerticalMargin = 48f;
     private const float NavButtonLabelYOffset = 17f;
     private const string RoleTitle = "\u9009\u62e9\u4f60\u7684\u4e3b\u89d2";
-    private const string RoleSubtitle = "\u70b9\u51fb\u4e0b\u65b9\u89d2\u8272\u5361\u9009\u62e9\u4e3b\u89d2\uff0c\u518d\u8fdb\u5165\u89c4\u5219\u8bf4\u660e\u3002";
+    private const string RoleSubtitle = "";
     private const string RuleTitle = "\u5f00\u59cb\u524d\u8bf4\u660e";
     private static readonly Color SelectedBorderColor = new Color(0.99f, 0.95f, 0.74f, 1f);
     private static readonly Color SelectedPortraitFrameColor = new Color(0.98f, 0.96f, 0.86f, 1f);
+
+    [Header("Player Count Selection")]
+    public int minPlayers = 1;
+    public int maxPlayers = 4;
+    public int selectedPlayerCount = 1;
 
     public Button StartButton;
 
@@ -31,8 +36,8 @@ public class MenuScene : MonoBehaviour
     private Font _defaultFont;
     private RoleId _selectedRole = RoleId.Duck;
     private GameObject _menuShellInstance;
-    private GameObject _roleCardPrefab;
     private GameObject _mainMenuPanel;
+    private GameObject _playerCountPanel;
     private GameObject _rolePanel;
     private GameObject _rulePanel;
     private RectTransform _cardsRoot;
@@ -41,9 +46,16 @@ public class MenuScene : MonoBehaviour
     private Button _roleNextButton;
     private Button _ruleBackButton;
     private Button _enterGameButton;
+    private Button _playerCountBackButton;
+    private Button _playerCountNextButton;
+    private Button[] _playerCountButtons;
+    private Text[] _playerCountButtonTexts;
+    private Text _playerCountTitleText;
+    private Text _playerCountSubtitleText;
     private Text _roleTitleText;
     private Text _roleSubtitleText;
     private Text _ruleTitleText;
+    private GameObject _ruleSummaryFrame;
     private Text _ruleSummaryText;
     private Text _ruleBodyText;
     private Image _rulePortraitImage;
@@ -54,6 +66,15 @@ public class MenuScene : MonoBehaviour
 
     private readonly List<RoleCardRuntime> _roleCards = new List<RoleCardRuntime>();
     private readonly Dictionary<string, Sprite> _portraitCache = new Dictionary<string, Sprite>();
+
+    // Multi-player role selection
+    private readonly List<RoleId> _playerRoleSelections = new List<RoleId>();
+    private readonly List<bool> _playerRoleLocked = new List<bool>();
+    private int _currentSlotIndex;
+    private Button[] _playerSlotButtons;
+    private Text[] _playerSlotLabels;
+    private Image[] _playerSlotRoleBadges;
+    private RectTransform _playerSlotsRoot;
 
     private sealed class RoleCardRuntime
     {
@@ -68,6 +89,8 @@ public class MenuScene : MonoBehaviour
         public Text skillTitleText;
         public Text skillText;
         public Image portraitImage;
+        public GameObject selectedBadgeRoot;
+        public Text selectedText;
         public Vector2 baseAnchoredPosition;
     }
 
@@ -92,9 +115,14 @@ public class MenuScene : MonoBehaviour
         }
 
         ApplyFontToExistingTexts(_canvasRoot);
-        _roleCardPrefab = Resources.Load<GameObject>("Prefabs/UI/RoleCard");
+        minPlayers = GameSessionConfig.MinPlayerCount;
+        maxPlayers = GameSessionConfig.MaxPlayerCount;
+        selectedPlayerCount = Mathf.Clamp(selectedPlayerCount, minPlayers, maxPlayers);
         EnsureMenuShell();
         CacheMenuShellRefs();
+        CachePlayerCountPanelRefs();
+        CachePlayerSlotStripRefs();
+        InitializeRoleSelections();
         BuildRoleCards();
         BindButtons();
         ShowMainMenu();
@@ -133,6 +161,7 @@ public class MenuScene : MonoBehaviour
         }
 
         _mainMenuPanel = _menuShellInstance.transform.Find("MainMenuPanel")?.gameObject;
+        _playerCountPanel = _menuShellInstance.transform.Find("PlayerCountPanel")?.gameObject;
         _rolePanel = _menuShellInstance.transform.Find("RoleSelectPanel")?.gameObject;
         _rulePanel = _menuShellInstance.transform.Find("RulePanel")?.gameObject;
         _cardsRoot = _menuShellInstance.transform.Find("RoleSelectPanel/CardsRoot") as RectTransform;
@@ -145,6 +174,7 @@ public class MenuScene : MonoBehaviour
         _roleTitleText = _menuShellInstance.transform.Find("RoleSelectPanel/TitleText")?.GetComponent<Text>();
         _roleSubtitleText = _menuShellInstance.transform.Find("RoleSelectPanel/SubtitleText")?.GetComponent<Text>();
         _ruleTitleText = _menuShellInstance.transform.Find("RulePanel/TitleText")?.GetComponent<Text>();
+        _ruleSummaryFrame = _menuShellInstance.transform.Find("RulePanel/RuleSummaryFrame")?.gameObject;
         _ruleSummaryText = _menuShellInstance.transform.Find("RulePanel/RuleSummaryFrame/RuleSummaryText")?.GetComponent<Text>();
         _ruleBodyText = _menuShellInstance.transform.Find("RulePanel/RuleBodyFrame/RuleBodyText")?.GetComponent<Text>();
         _ruleCardAnchor = _menuShellInstance.transform.Find("RulePanel/RulePortraitFrame") as RectTransform;
@@ -180,62 +210,170 @@ public class MenuScene : MonoBehaviour
             _ruleBodyText.text = BuildRuleDescription();
         }
 
-        EnsureRuleCardPreview();
     }
 
-    private void BuildRoleCards()
+    private void InitializeRoleSelections()
     {
-        _roleCards.Clear();
+        _playerRoleSelections.Clear();
+        _playerRoleLocked.Clear();
+        int roleCount = GameRoleCatalog.AllRoles.Count;
+        for (int i = 0; i < maxPlayers; i++)
+        {
+            _playerRoleSelections.Add(GameRoleCatalog.AllRoles[i % roleCount].roleId);
+            _playerRoleLocked.Add(false);
+        }
+        _currentSlotIndex = 0;
+        _selectedRole = _playerRoleSelections[0];
+    }
 
-        if (_cardsRoot == null || _roleCardPrefab == null)
+    private void CachePlayerCountPanelRefs()
+    {
+        if (_menuShellInstance == null)
         {
             return;
         }
 
-        for (int i = _cardsRoot.childCount - 1; i >= 0; i--)
+        Transform panelTf = _menuShellInstance.transform.Find("PlayerCountPanel");
+        if (panelTf == null)
         {
-            Transform child = _cardsRoot.GetChild(i);
-            if (Application.isPlaying)
-            {
-                Destroy(child.gameObject);
-            }
-            else
-            {
-                DestroyImmediate(child.gameObject);
-            }
+            Debug.LogError("[MenuScene] MenuShell prefab is missing PlayerCountPanel. Please add it to the prefab instead of generating it in code.");
+            return;
         }
 
-        for (int i = 0; i < GameRoleCatalog.AllRoles.Count; i++)
+        _playerCountPanel = panelTf.gameObject;
+        _playerCountTitleText = panelTf.Find("TitleText")?.GetComponent<Text>();
+        _playerCountSubtitleText = panelTf.Find("SubtitleText")?.GetComponent<Text>();
+        _playerCountBackButton = panelTf.Find("BackButton")?.GetComponent<Button>();
+        _playerCountNextButton = panelTf.Find("NextButton")?.GetComponent<Button>();
+
+        int buttonCount = Mathf.Max(1, maxPlayers - minPlayers + 1);
+        _playerCountButtons = new Button[buttonCount];
+        _playerCountButtonTexts = new Text[buttonCount];
+
+        Transform buttonsRoot = panelTf.Find("ButtonsRoot");
+        if (buttonsRoot == null)
+        {
+            Debug.LogError("[MenuScene] PlayerCountPanel is missing ButtonsRoot.");
+            return;
+        }
+
+        for (int i = minPlayers; i <= maxPlayers; i++)
+        {
+            int idx = i - minPlayers;
+            Button btn = buttonsRoot.Find($"PlayerCountButton{i}")?.GetComponent<Button>();
+            if (btn == null)
+            {
+                Debug.LogError($"[MenuScene] ButtonsRoot is missing PlayerCountButton{i}.");
+                continue;
+            }
+
+            _playerCountButtons[idx] = btn;
+            _playerCountButtonTexts[idx] = btn.GetComponentInChildren<Text>();
+        }
+
+        ApplyButtonStyle(_playerCountBackButton);
+        ApplyButtonStyle(_playerCountNextButton);
+
+        if (_playerCountSubtitleText != null)
+        {
+            _playerCountSubtitleText.text = $"\u6bcf\u4f4d\u73a9\u5bb6\u90fd\u4f1a\u5728\u4e4b\u540e\u5355\u72ec\u9009\u62e9\u89d2\u8272\uff08{minPlayers}-{maxPlayers}\u4eba\uff09";
+        }
+
+        _playerCountPanel.SetActive(false);
+    }
+
+    private void CachePlayerSlotStripRefs()
+    {
+        if (_rolePanel == null)
+        {
+            return;
+        }
+
+        _playerSlotsRoot = _rolePanel.transform.Find("PlayerSlotsRoot") as RectTransform;
+        if (_playerSlotsRoot == null)
+        {
+            Debug.LogError("[MenuScene] RoleSelectPanel is missing PlayerSlotsRoot. Please add it to MenuShell prefab.");
+            return;
+        }
+
+        _playerSlotButtons = new Button[maxPlayers];
+        _playerSlotLabels = new Text[maxPlayers];
+        _playerSlotRoleBadges = new Image[maxPlayers];
+
+        for (int i = 0; i < maxPlayers; i++)
+        {
+            Button slotBtn = _playerSlotsRoot.Find($"Slot{i + 1}")?.GetComponent<Button>();
+            if (slotBtn == null)
+            {
+                Debug.LogError($"[MenuScene] PlayerSlotsRoot is missing Slot{i + 1}.");
+                continue;
+            }
+
+            _playerSlotButtons[i] = slotBtn;
+            _playerSlotLabels[i] = slotBtn.GetComponentInChildren<Text>();
+            _playerSlotRoleBadges[i] = slotBtn.transform.Find("RoleBadge")?.GetComponent<Image>();
+        }
+    }
+    private void BuildRoleCards()
+    {
+        _roleCards.Clear();
+
+        if (_cardsRoot == null)
+        {
+            return;
+        }
+
+        int roleCount = GameRoleCatalog.AllRoles.Count;
+        if (_cardsRoot.childCount < roleCount)
+        {
+            Debug.LogError($"[MenuScene] CardsRoot needs {roleCount} role card objects in the MenuShell prefab, but only {_cardsRoot.childCount} were found.");
+            return;
+        }
+
+        for (int i = 0; i < roleCount; i++)
         {
             RoleDefinition role = GameRoleCatalog.AllRoles[i];
-            GameObject cardObject = Instantiate(_roleCardPrefab, _cardsRoot);
-            cardObject.name = $"{role.displayName}Card";
-
-            RectTransform cardRect = cardObject.GetComponent<RectTransform>();
-            if (cardRect != null)
+            GameObject cardObject = FindRoleCardObject(role, i);
+            if (cardObject == null)
             {
-                cardRect.sizeDelta = new Vector2(RoleCardWidth, RoleCardHeight);
-                float cardWidth = RoleCardWidth;
-                float gap = 28f;
-                float totalWidth = (cardWidth * GameRoleCatalog.AllRoles.Count) + (gap * (GameRoleCatalog.AllRoles.Count - 1));
-                float startX = (-totalWidth * 0.5f) + (cardWidth * 0.5f);
-
-                cardRect.anchorMin = new Vector2(0.5f, 0.5f);
-                cardRect.anchorMax = new Vector2(0.5f, 0.5f);
-                cardRect.pivot = new Vector2(0.5f, 0.5f);
-                cardRect.anchoredPosition = new Vector2(startX + i * (cardWidth + gap), -6f);
+                Debug.LogError($"[MenuScene] CardsRoot is missing card object for {role.roleId}.");
+                continue;
             }
+
+            cardObject.name = $"{role.roleId}Card";
+            cardObject.SetActive(true);
 
             RoleCardRuntime runtime = CreateRoleCardRuntime(cardObject, true);
             PopulateRoleCard(runtime, role);
 
             RoleId roleId = role.roleId;
-            runtime.button.onClick.RemoveAllListeners();
-            runtime.button.onClick.AddListener(() => SelectRole(roleId));
+            if (runtime.button != null)
+            {
+                runtime.button.onClick.RemoveAllListeners();
+                runtime.button.onClick.AddListener(() => OnRoleCardClicked(roleId));
+            }
             _roleCards.Add(runtime);
         }
 
         RefreshRoleSelection();
+    }
+
+    private GameObject FindRoleCardObject(RoleDefinition role, int fallbackIndex)
+    {
+        if (_cardsRoot == null || role == null)
+        {
+            return null;
+        }
+
+        Transform namedCard = _cardsRoot.Find($"{role.roleId}Card");
+        if (namedCard != null)
+        {
+            return namedCard.gameObject;
+        }
+
+        return fallbackIndex >= 0 && fallbackIndex < _cardsRoot.childCount
+            ? _cardsRoot.GetChild(fallbackIndex).gameObject
+            : null;
     }
 
     private void BindButtons()
@@ -243,7 +381,7 @@ public class MenuScene : MonoBehaviour
         if (StartButton != null)
         {
             StartButton.onClick.RemoveAllListeners();
-            StartButton.onClick.AddListener(OpenRoleSelect);
+            StartButton.onClick.AddListener(ShowPlayerCountSelection);
         }
 
         if (_quitButton != null)
@@ -255,7 +393,7 @@ public class MenuScene : MonoBehaviour
         if (_roleBackButton != null)
         {
             _roleBackButton.onClick.RemoveAllListeners();
-            _roleBackButton.onClick.AddListener(ShowMainMenu);
+            _roleBackButton.onClick.AddListener(ShowPlayerCountSelection);
         }
 
         if (_roleNextButton != null)
@@ -275,30 +413,93 @@ public class MenuScene : MonoBehaviour
             _enterGameButton.onClick.RemoveAllListeners();
             _enterGameButton.onClick.AddListener(StartGame);
         }
+
+        if (_playerCountBackButton != null)
+        {
+            _playerCountBackButton.onClick.RemoveAllListeners();
+            _playerCountBackButton.onClick.AddListener(ShowMainMenu);
+        }
+
+        if (_playerCountNextButton != null)
+        {
+            _playerCountNextButton.onClick.RemoveAllListeners();
+            _playerCountNextButton.onClick.AddListener(OpenRoleSelect);
+        }
+
+        if (_playerCountButtons != null)
+        {
+            for (int i = minPlayers; i <= maxPlayers; i++)
+            {
+                int count = i;
+                int index = i - minPlayers;
+                if (index < 0 || index >= _playerCountButtons.Length || _playerCountButtons[index] == null)
+                {
+                    continue;
+                }
+
+                _playerCountButtons[index].onClick.RemoveAllListeners();
+                _playerCountButtons[index].onClick.AddListener(() => SelectPlayerCount(count));
+            }
+        }
+
+        if (_playerSlotButtons != null)
+        {
+            for (int i = 0; i < _playerSlotButtons.Length; i++)
+            {
+                int slotIndex = i;
+                if (_playerSlotButtons[i] == null)
+                {
+                    continue;
+                }
+
+                _playerSlotButtons[i].onClick.RemoveAllListeners();
+                _playerSlotButtons[i].onClick.AddListener(() => OnSlotButtonClicked(slotIndex));
+            }
+        }
     }
 
     private void ShowMainMenu()
     {
         SetActive(_mainMenuPanel, true);
+        SetActive(_playerCountPanel, false);
         SetActive(_rolePanel, false);
         SetActive(_rulePanel, false);
+    }
+
+    private void ShowPlayerCountSelection()
+    {
+        InitializeRoleSelections();
+        SetActive(_mainMenuPanel, false);
+        SetActive(_playerCountPanel, true);
+        SetActive(_rolePanel, false);
+        SetActive(_rulePanel, false);
+        RefreshPlayerCountSelection();
     }
 
     private void OpenRoleSelect()
     {
         SetActive(_mainMenuPanel, false);
+        SetActive(_playerCountPanel, false);
         SetActive(_rolePanel, true);
         SetActive(_rulePanel, false);
         ApplyNavigationButtonLayout();
+        EnsureActiveSlot();
+        _selectedRole = _playerRoleSelections[_currentSlotIndex];
+        EnsureCurrentSelectionAvailable();
+        UpdateRoleSelectionForMultiplePlayers();
         RefreshRoleSelection();
+        UpdatePlayerSlotIndicators();
     }
 
     private void OpenRulePanel()
     {
         SetActive(_mainMenuPanel, false);
+        SetActive(_playerCountPanel, false);
         SetActive(_rolePanel, false);
         SetActive(_rulePanel, true);
         ApplyNavigationButtonLayout();
+        int previewSlot = Mathf.Clamp(_currentSlotIndex, 0, Mathf.Max(0, selectedPlayerCount - 1));
+        _selectedRole = previewSlot < _playerRoleSelections.Count ? _playerRoleSelections[previewSlot] : RoleId.Duck;
         RefreshRulePanel();
     }
 
@@ -308,27 +509,330 @@ public class MenuScene : MonoBehaviour
         RefreshRoleSelection();
     }
 
+    private void OnSlotButtonClicked(int slotIndex)
+    {
+        if (slotIndex < 0 || slotIndex >= selectedPlayerCount)
+        {
+            return;
+        }
+
+        _currentSlotIndex = slotIndex;
+        _selectedRole = _playerRoleSelections[slotIndex];
+        RefreshRoleSelection();
+        UpdatePlayerSlotIndicators();
+        UpdateRoleSelectionForMultiplePlayers();
+    }
+
+    private void SelectPlayerCount(int count)
+    {
+        selectedPlayerCount = Mathf.Clamp(count, minPlayers, maxPlayers);
+        EnsureActiveSlot();
+        EnsureCurrentSelectionAvailable();
+        RefreshPlayerCountSelection();
+        Debug.Log($"[MenuScene] Selected player count: {selectedPlayerCount}");
+    }
+
+    private void RefreshPlayerCountSelection()
+    {
+        if (_playerCountButtons == null)
+        {
+            return;
+        }
+
+        for (int i = minPlayers; i <= maxPlayers; i++)
+        {
+            int index = i - minPlayers;
+            if (index < _playerCountButtons.Length && _playerCountButtons[index] != null)
+            {
+                bool selected = i == selectedPlayerCount;
+                ApplyPlayerCountButtonStyle(_playerCountButtons[index], selected);
+            }
+        }
+    }
+
+    private void UpdateRoleSelectionForMultiplePlayers()
+    {
+        if (_roleTitleText != null)
+        {
+            _roleTitleText.text = HasValidRoleSelection()
+                ? "\u786e\u8ba4\u89d2\u8272\u5206\u914d"
+                : selectedPlayerCount > 1
+                ? $"\u4e3a P{_currentSlotIndex + 1} \u9009\u62e9\u89d2\u8272"
+                : RoleTitle;
+        }
+
+        if (_roleSubtitleText != null)
+        {
+            _roleSubtitleText.text = string.Empty;
+        }
+    }
+
+    private void UpdatePlayerSlotIndicators()
+    {
+        if (_playerSlotButtons == null) return;
+
+        for (int i = 0; i < _playerSlotButtons.Length; i++)
+        {
+            Button slotButton = _playerSlotButtons[i];
+            bool shouldShow = i < selectedPlayerCount;
+            if (slotButton != null)
+            {
+                slotButton.gameObject.SetActive(shouldShow);
+            }
+            if (!shouldShow) continue;
+            if (slotButton == null) continue;
+
+            bool locked = IsSlotLocked(i);
+            RoleId roleId = _playerRoleSelections[i];
+            RoleDefinition role = GameRoleCatalog.Get(roleId);
+
+            if (_playerSlotLabels[i] != null)
+            {
+                _playerSlotLabels[i].text = locked ? $"P{i + 1} {role.displayName}" : $"P{i + 1} \u5f85\u9009\u62e9";
+            }
+
+            if (_playerSlotRoleBadges[i] != null)
+            {
+                _playerSlotRoleBadges[i].color = GetRoleColor(roleId);
+                _playerSlotRoleBadges[i].gameObject.SetActive(locked);
+            }
+
+            Image slotImage = slotButton.GetComponent<Image>();
+            if (slotImage != null)
+            {
+                slotImage.color = i == _currentSlotIndex
+                    ? new Color(0.99f, 0.85f, 0.35f, 1f)
+                    : new Color(0.95f, 0.95f, 0.95f, 1f);
+            }
+        }
+
+        // set NextButton interactable only when the selection is valid
+        if (_roleNextButton != null)
+        {
+            _roleNextButton.interactable = HasValidRoleSelection();
+        }
+    }
+
+    private bool HasValidRoleSelection()
+    {
+        if (_playerRoleSelections.Count < selectedPlayerCount) return false;
+        if (_playerRoleLocked.Count < selectedPlayerCount) return false;
+
+        HashSet<RoleId> seen = new HashSet<RoleId>();
+        int limit = Mathf.Min(selectedPlayerCount, _playerRoleSelections.Count);
+        for (int i = 0; i < limit; i++)
+        {
+            if (!IsSlotLocked(i)) return false;
+            if (!seen.Add(_playerRoleSelections[i])) return false;
+        }
+        return true;
+    }
+
+    private Color GetRoleColor(RoleId roleId)
+    {
+        switch (roleId)
+        {
+            case RoleId.Duck: return new Color(1f, 0.8f, 0.2f, 1f); // 黄色
+            case RoleId.Rabbit: return new Color(0.4f, 0.8f, 1f, 1f); // 蓝色
+            case RoleId.Panda: return new Color(0.95f, 0.95f, 0.95f, 1f); // 白色
+            case RoleId.Dog: return new Color(0.9f, 0.6f, 0.3f, 1f); // 橙色
+            default: return Color.gray;
+        }
+    }
+
+    protected void OnRoleCardClicked(RoleId roleId)
+    {
+        if (_currentSlotIndex < 0 || _currentSlotIndex >= selectedPlayerCount)
+        {
+            return;
+        }
+
+        int lockedSlot = FindLockedSlotWithRole(roleId);
+        if (lockedSlot >= 0)
+        {
+            _currentSlotIndex = lockedSlot;
+            _playerRoleLocked[lockedSlot] = false;
+            _playerRoleSelections[lockedSlot] = roleId;
+            _selectedRole = roleId;
+            RefreshRoleSelection();
+            UpdatePlayerSlotIndicators();
+            UpdateRoleSelectionForMultiplePlayers();
+            Debug.Log($"[MenuScene] Slot {lockedSlot + 1} role unlocked: {roleId}");
+            return;
+        }
+
+        if (IsSlotLocked(_currentSlotIndex))
+        {
+            return;
+        }
+
+        int selectedSlotIndex = _currentSlotIndex;
+        _playerRoleSelections[_currentSlotIndex] = roleId;
+        _playerRoleLocked[_currentSlotIndex] = true;
+        _selectedRole = roleId;
+        RefreshRoleSelection();
+        UpdatePlayerSlotIndicators();
+
+        int nextSlot = FindNextUnlockedSlot(_currentSlotIndex + 1);
+        if (nextSlot >= 0)
+        {
+            _currentSlotIndex = nextSlot;
+            EnsureCurrentSelectionAvailable();
+            _selectedRole = _playerRoleSelections[_currentSlotIndex];
+            RefreshRoleSelection();
+            UpdatePlayerSlotIndicators();
+            UpdateRoleSelectionForMultiplePlayers();
+        }
+
+        Debug.Log($"[MenuScene] Slot {selectedSlotIndex + 1} role selected: {roleId}");
+    }
+
+    private int FindSlotWithRole(RoleId roleId, int excludeSlot)
+    {
+        int limit = Mathf.Min(selectedPlayerCount, _playerRoleSelections.Count);
+        for (int i = 0; i < limit; i++)
+        {
+            if (i == excludeSlot) continue;
+            if (IsSlotLocked(i) && _playerRoleSelections[i] == roleId) return i;
+        }
+        return -1;
+    }
+
+    private int FindLockedSlotWithRole(RoleId roleId)
+    {
+        return FindSlotWithRole(roleId, -1);
+    }
+
+    private bool IsSlotLocked(int slotIndex)
+    {
+        return slotIndex >= 0 && slotIndex < _playerRoleLocked.Count && _playerRoleLocked[slotIndex];
+    }
+
+    private bool IsRoleLocked(RoleId roleId)
+    {
+        int limit = Mathf.Min(selectedPlayerCount, _playerRoleSelections.Count);
+        for (int i = 0; i < limit; i++)
+        {
+            if (IsSlotLocked(i) && _playerRoleSelections[i] == roleId)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsRoleLockedByOtherSlot(RoleId roleId, int excludeSlot)
+    {
+        return FindSlotWithRole(roleId, excludeSlot) >= 0;
+    }
+
+    private int FindNextUnlockedSlot(int startIndex)
+    {
+        for (int i = Mathf.Max(0, startIndex); i < selectedPlayerCount; i++)
+        {
+            if (!IsSlotLocked(i))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private void EnsureActiveSlot()
+    {
+        if (_currentSlotIndex < 0 || _currentSlotIndex >= selectedPlayerCount)
+        {
+            _currentSlotIndex = Mathf.Max(0, FindNextUnlockedSlot(0));
+        }
+
+        if (IsSlotLocked(_currentSlotIndex))
+        {
+            int unlockedSlot = FindNextUnlockedSlot(0);
+            if (unlockedSlot >= 0)
+            {
+                _currentSlotIndex = unlockedSlot;
+            }
+        }
+
+        if (_currentSlotIndex < 0 || _currentSlotIndex >= selectedPlayerCount)
+        {
+            _currentSlotIndex = 0;
+        }
+    }
+
+    private void EnsureCurrentSelectionAvailable()
+    {
+        if (_currentSlotIndex < 0 || _currentSlotIndex >= _playerRoleSelections.Count)
+        {
+            return;
+        }
+
+        if (IsSlotLocked(_currentSlotIndex) || !IsRoleLocked(_playerRoleSelections[_currentSlotIndex]))
+        {
+            return;
+        }
+
+        _playerRoleSelections[_currentSlotIndex] = FindFirstUnlockedRole();
+        _selectedRole = _playerRoleSelections[_currentSlotIndex];
+    }
+
+    private RoleId FindFirstUnlockedRole()
+    {
+        for (int i = 0; i < GameRoleCatalog.AllRoles.Count; i++)
+        {
+            RoleId roleId = GameRoleCatalog.AllRoles[i].roleId;
+            if (!IsRoleLocked(roleId))
+            {
+                return roleId;
+            }
+        }
+
+        return RoleId.Duck;
+    }
+
     private void RefreshRoleSelection()
     {
+        bool allLocalPlayersSelected = HasValidRoleSelection();
         for (int i = 0; i < _roleCards.Count; i++)
         {
             RoleCardRuntime card = _roleCards[i];
             RolePalette palette = GetRolePalette(card.roleId);
             bool selected = card.roleId == _selectedRole;
             ApplyRoleCardVisual(card, palette, selected, true);
+
+            int lockedSlot = FindLockedSlotWithRole(card.roleId);
+            bool locked = lockedSlot >= 0;
+            if (card.rootImage != null)
+            {
+                Color color = card.rootImage.color;
+                color.a = locked && !selected ? 0.55f : 1f;
+                card.rootImage.color = color;
+            }
+
+            if (card.selectedBadgeRoot != null)
+            {
+                card.selectedBadgeRoot.SetActive(locked || allLocalPlayersSelected);
+            }
+
+            if (card.selectedText != null)
+            {
+                card.selectedText.text = locked ? $"P{lockedSlot + 1}" : "AI";
+            }
+
+            if (card.button != null)
+            {
+                card.button.interactable = locked || !IsSlotLocked(_currentSlotIndex);
+            }
         }
     }
 
     private void RefreshRulePanel()
     {
-        RoleDefinition role = GameRoleCatalog.Get(_selectedRole);
-        RolePalette palette = GetRolePalette(role.roleId);
-
-        EnsureRuleCardPreview();
-        if (_rulePreviewCard != null)
+        if (_ruleCardAnchor != null)
         {
-            PopulateRoleCard(_rulePreviewCard, role);
-            ApplyRoleCardVisual(_rulePreviewCard, palette, true, false);
+            _ruleCardAnchor.gameObject.SetActive(false);
         }
 
         if (_rulePortraitImage != null)
@@ -336,22 +840,39 @@ public class MenuScene : MonoBehaviour
             _rulePortraitImage.gameObject.SetActive(false);
         }
 
-        if (_rulePortraitFrameImage != null)
+        if (_ruleSummaryFrame != null)
         {
-            Color frameColor = palette.portraitFrame;
-            frameColor.a = 0.14f;
-            _rulePortraitFrameImage.color = frameColor;
+            _ruleSummaryFrame.SetActive(false);
         }
 
         if (_ruleSummaryText != null)
         {
-            _ruleSummaryText.text =
-                $"\u672c\u5c40\u4e3b\u89d2\uff1a{role.displayName}\n" +
-                $"\u6587\u5316\u4e3b\u9898\uff1a{role.cultureTheme}\n" +
-                $"\u88ab\u52a8\u6280\u80fd\uff1a{role.skillName}\n" +
-                $"{role.skillDescription}\n" +
-                "\u5176\u4f59 3 \u4f4d\u89d2\u8272\u7531 AI \u64cd\u63a7\u3002";
-            _ruleSummaryText.color = new Color(0.98f, 0.97f, 0.92f, 1f);
+            _ruleSummaryText.enabled = false;
+            _ruleSummaryText.text = string.Empty;
+        }
+
+        if (_ruleBodyText != null)
+        {
+            _ruleBodyText.enabled = true;
+            _ruleBodyText.text = BuildRuleDescription();
+            _ruleBodyText.alignment = TextAnchor.MiddleCenter;
+        }
+    }
+
+    private void ApplyPlayerCountButtonStyle(Button button, bool selected)
+    {
+        if (button == null) return;
+        
+        Image image = button.GetComponent<Image>();
+        if (image != null)
+        {
+            image.color = selected ? new Color(0.2f, 0.6f, 0.9f, 1f) : new Color(0.8f, 0.8f, 0.8f, 1f);
+        }
+        
+        Text text = button.GetComponentInChildren<Text>();
+        if (text != null)
+        {
+            text.color = selected ? Color.white : new Color(0.3f, 0.3f, 0.3f, 1f);
         }
     }
 
@@ -361,12 +882,18 @@ public class MenuScene : MonoBehaviour
                "1. \u6bcf\u56de\u5408\uff1a\u63b7\u9ab0 -> \u79fb\u52a8 -> \u7ed3\u7b97\u683c\u5b50\u3002\n" +
                "2. \u5730\u4ea7\u683c\u53ef\u8d2d\u4e70\uff0c\u522b\u4eba\u505c\u4e0a\u8981\u4ed8\u8fc7\u8def\u8d39\u3002\n" +
                "3. \u7b54\u9898\u683c\u7b54\u5bf9\u52a0\u94b1\uff0c\u7b54\u9519\u6263\u94b1\uff1b\u9053\u5177\u5361\u6536\u5165\u624b\u724c\uff0c\u8fd0\u6c14\u5361\u7acb\u5373\u751f\u6548\u3002\n" +
-               "4. \u8d44\u91d1\u5f52\u96f6\u4f1a\u88ab\u6dd8\u6c70\uff1b\u5148\u8fbe\u5230 30000 \u5609\u79be\u5e01\uff0c\u6216\u6210\u4e3a\u6700\u540e\u7559\u5728\u573a\u4e0a\u7684\u89d2\u8272\uff0c\u5373\u53ef\u83b7\u80dc\u3002";
+               $"4. \u8d44\u91d1\u5f52\u96f6\u4f1a\u88ab\u6dd8\u6c70\uff1b\u5148\u8fbe\u5230 {GameManager.DefaultTargetMoneyToWin} \u5609\u79be\u5e01\uff0c\u6216\u6210\u4e3a\u6700\u540e\u7559\u5728\u573a\u4e0a\u7684\u89d2\u8272\uff0c\u5373\u53ef\u83b7\u80dc\u3002";
     }
 
     private void StartGame()
     {
-        GameSessionConfig.SetHumanRole(_selectedRole);
+        List<RoleId> selectedRoles = new List<RoleId>();
+        for (int i = 0; i < selectedPlayerCount; i++)
+        {
+            selectedRoles.Add(_playerRoleSelections[i]);
+        }
+        GameSessionConfig.SetLocalPlayers(selectedPlayerCount, selectedRoles);
+
         SceneManager.LoadScene("GameScene");
     }
 
@@ -483,17 +1010,15 @@ public class MenuScene : MonoBehaviour
             nameText = FindChildComponent<Text>(cardObject, "NameText"),
             themeText = FindChildComponent<Text>(cardObject, "ThemeText"),
             skillTitleText = FindChildComponent<Text>(cardObject, "SkillTitleText"),
-            skillText = FindChildComponent<Text>(cardObject, "SkillText")
+            skillText = FindChildComponent<Text>(cardObject, "SkillText"),
+            selectedText = FindChildComponent<Text>(cardObject, "SelectedText")
         };
 
         if (cardObject != null)
         {
+            CacheSelectedBadge(runtime, cardObject);
             ApplyFontToExistingTexts(cardObject.transform);
             runtime.outline = cardObject.GetComponent<Outline>();
-            if (runtime.outline == null)
-            {
-                runtime.outline = cardObject.AddComponent<Outline>();
-            }
 
             if (runtime.outline != null)
             {
@@ -516,6 +1041,24 @@ public class MenuScene : MonoBehaviour
         ApplyRoleCardLayout(runtime);
 
         return runtime;
+    }
+
+    private void CacheSelectedBadge(RoleCardRuntime runtime, GameObject cardObject)
+    {
+        if (runtime == null || cardObject == null)
+        {
+            return;
+        }
+
+        if (runtime.selectedText != null)
+        {
+            runtime.selectedBadgeRoot = runtime.selectedText.transform.parent != null
+                ? runtime.selectedText.transform.parent.gameObject
+                : runtime.selectedText.gameObject;
+            return;
+        }
+
+        Debug.LogError($"[MenuScene] {cardObject.name} is missing SelectedBadge/SelectedText. Please add it to RoleCard prefab.");
     }
 
     private T FindChildComponent<T>(GameObject root, string childName) where T : Component
@@ -611,6 +1154,31 @@ public class MenuScene : MonoBehaviour
             SetTopCenterRect(runtime.portraitImage.rectTransform, new Vector2(RoleCardPortraitWidth, RoleCardPortraitHeight), 12f);
         }
 
+        if (runtime.selectedBadgeRoot != null)
+        {
+            RectTransform badgeRect = runtime.selectedBadgeRoot.transform as RectTransform;
+            SetTopCenterRect(badgeRect, new Vector2(132f, 42f), 28f);
+            runtime.selectedBadgeRoot.SetActive(false);
+        }
+
+        if (runtime.selectedText != null)
+        {
+            if (runtime.selectedBadgeRoot != runtime.selectedText.gameObject)
+            {
+                SetStretchRect(runtime.selectedText.rectTransform);
+            }
+
+            runtime.selectedText.alignment = TextAnchor.MiddleCenter;
+            runtime.selectedText.fontStyle = FontStyle.Bold;
+            runtime.selectedText.fontSize = 24;
+            runtime.selectedText.resizeTextForBestFit = true;
+            runtime.selectedText.resizeTextMinSize = 12;
+            runtime.selectedText.resizeTextMaxSize = 24;
+            runtime.selectedText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            runtime.selectedText.verticalOverflow = VerticalWrapMode.Overflow;
+            runtime.selectedText.color = Color.white;
+        }
+
         if (runtime.skillTitleText != null)
         {
             runtime.skillTitleText.gameObject.SetActive(true);
@@ -656,6 +1224,7 @@ public class MenuScene : MonoBehaviour
         rectTransform.pivot = new Vector2(0.5f, 1f);
         rectTransform.anchoredPosition = new Vector2(0f, -top);
         rectTransform.sizeDelta = size;
+        rectTransform.localScale = Vector3.one;
     }
 
     private static void SetStretchRect(RectTransform rectTransform)
@@ -670,6 +1239,7 @@ public class MenuScene : MonoBehaviour
         rectTransform.pivot = new Vector2(0.5f, 0.5f);
         rectTransform.anchoredPosition = Vector2.zero;
         rectTransform.sizeDelta = Vector2.zero;
+        rectTransform.localScale = Vector3.one;
     }
 
     private void ApplyRoleCardVisual(RoleCardRuntime card, RolePalette palette, bool selected, bool interactive)
@@ -744,6 +1314,19 @@ public class MenuScene : MonoBehaviour
         }
 
         bool rolePanelVisible = _rolePanel != null && _rolePanel.activeSelf;
+        if (!rolePanelVisible || HasValidRoleSelection())
+        {
+            for (int i = 0; i < _roleCards.Count; i++)
+            {
+                RoleCardRuntime card = _roleCards[i];
+                if (card != null && card.rectTransform != null)
+                {
+                    card.rectTransform.anchoredPosition = card.baseAnchoredPosition;
+                }
+            }
+            return;
+        }
+
         float time = Time.unscaledTime;
 
         for (int i = 0; i < _roleCards.Count; i++)
@@ -754,32 +1337,27 @@ public class MenuScene : MonoBehaviour
                 continue;
             }
 
-            bool selected = rolePanelVisible && card.roleId == _selectedRole;
+            bool selected = card.roleId == _selectedRole;
             float offsetY = selected ? Mathf.Sin((time * 2.6f) + (i * 0.2f)) * 7f : 0f;
             card.rectTransform.anchoredPosition = card.baseAnchoredPosition + new Vector2(0f, offsetY);
         }
     }
 
-    private void EnsureRuleCardPreview()
+    private void CacheRuleCardPreview()
     {
-        if (_rulePreviewCardObject != null || _ruleCardAnchor == null || _roleCardPrefab == null)
+        if (_rulePreviewCardObject != null || _ruleCardAnchor == null)
         {
             return;
         }
 
-        _rulePreviewCardObject = Instantiate(_roleCardPrefab, _ruleCardAnchor);
-        _rulePreviewCardObject.name = "RulePreviewCard";
-
-        RectTransform rect = _rulePreviewCardObject.GetComponent<RectTransform>();
-        if (rect != null)
+        Transform preview = _ruleCardAnchor.Find("RulePreviewCard");
+        if (preview == null)
         {
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = Vector2.zero;
-            rect.localScale = new Vector3(0.98f, 0.98f, 1f);
+            Debug.LogError("[MenuScene] RulePortraitFrame is missing RulePreviewCard. Please add a RoleCard object to MenuShell prefab.");
+            return;
         }
 
+        _rulePreviewCardObject = preview.gameObject;
         _rulePreviewCard = CreateRoleCardRuntime(_rulePreviewCardObject, false);
     }
 
