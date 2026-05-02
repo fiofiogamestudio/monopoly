@@ -889,9 +889,9 @@ public class UIManager : MonoBehaviour
         }
 
         text.fontSize = fontSize;
-        text.resizeTextForBestFit = true;
-        text.resizeTextMinSize = 10;
-        text.resizeTextMaxSize = maxSize;
+        text.resizeTextForBestFit = false;
+        text.resizeTextMinSize = fontSize;
+        text.resizeTextMaxSize = fontSize;
         text.alignment = alignment;
         text.horizontalOverflow = horizontalWrap;
         text.verticalOverflow = verticalWrap;
@@ -1361,8 +1361,8 @@ public class UIManager : MonoBehaviour
             {
                 continue;
             }
-            item.SetName(GetPlayerName(i));
-            item.SetControlTag(string.Empty);
+            item.SetName(GetPlayerHudRoleName(i));
+            item.SetControlTag(GetPlayerControlTag(i));
             item.SetAvatar(GetPlayerAvatar(i));
             item.SetMoney(GetDisplayedMoneyValue(i, gameManager.GetMoney(i)));
             item.SetOwnedPropertySummary(gameManager.GetOwnedPropertySummary(i));
@@ -2297,6 +2297,27 @@ public class UIManager : MonoBehaviour
         }
 
         return gameManager.playerManager.GetPlayerDisplayName(playerIndex);
+    }
+
+    private string GetPlayerHudRoleName(int playerIndex)
+    {
+        if (gameManager == null || gameManager.playerManager == null)
+        {
+            return $"\u73a9\u5bb6{playerIndex + 1}";
+        }
+
+        string roleName = gameManager.playerManager.GetPlayerRoleDisplayName(playerIndex);
+        return string.IsNullOrEmpty(roleName) ? GetPlayerName(playerIndex) : roleName;
+    }
+
+    private string GetPlayerControlTag(int playerIndex)
+    {
+        if (gameManager == null || gameManager.playerManager == null)
+        {
+            return $"P{playerIndex + 1}";
+        }
+
+        return gameManager.playerManager.GetPlayerLabel(playerIndex);
     }
 
     private Color GetPlayerAccent(int playerIndex)

@@ -104,7 +104,7 @@ public class PlayerInfoItem : MonoBehaviour
             string displayName = string.IsNullOrEmpty(_playerName) ? "\u89d2\u8272" : _playerName;
             nameText.text = string.IsNullOrEmpty(_controlTag)
                 ? displayName
-                : $"{displayName}({_controlTag})";
+                : $"{displayName}\uff08{_controlTag}\uff09";
         }
 
         if (moneyText == null)

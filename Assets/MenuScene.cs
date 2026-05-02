@@ -21,7 +21,6 @@ public class MenuScene : MonoBehaviour
     private const float NavButtonLabelYOffset = 17f;
     private const string RoleTitle = "\u9009\u62e9\u4f60\u7684\u4e3b\u89d2";
     private const string RoleSubtitle = "";
-    private const string RuleTitle = "\u5f00\u59cb\u524d\u8bf4\u660e";
     private static readonly Color SelectedBorderColor = new Color(0.99f, 0.95f, 0.74f, 1f);
     private static readonly Color SelectedPortraitFrameColor = new Color(0.98f, 0.96f, 0.86f, 1f);
 
@@ -54,7 +53,6 @@ public class MenuScene : MonoBehaviour
     private Text _playerCountSubtitleText;
     private Text _roleTitleText;
     private Text _roleSubtitleText;
-    private Text _ruleTitleText;
     private GameObject _ruleSummaryFrame;
     private Text _ruleSummaryText;
     private Text _ruleBodyText;
@@ -173,7 +171,6 @@ public class MenuScene : MonoBehaviour
         _enterGameButton = _menuShellInstance.transform.Find("RulePanel/StartGameButton")?.GetComponent<Button>();
         _roleTitleText = _menuShellInstance.transform.Find("RoleSelectPanel/TitleText")?.GetComponent<Text>();
         _roleSubtitleText = _menuShellInstance.transform.Find("RoleSelectPanel/SubtitleText")?.GetComponent<Text>();
-        _ruleTitleText = _menuShellInstance.transform.Find("RulePanel/TitleText")?.GetComponent<Text>();
         _ruleSummaryFrame = _menuShellInstance.transform.Find("RulePanel/RuleSummaryFrame")?.gameObject;
         _ruleSummaryText = _menuShellInstance.transform.Find("RulePanel/RuleSummaryFrame/RuleSummaryText")?.GetComponent<Text>();
         _ruleBodyText = _menuShellInstance.transform.Find("RulePanel/RuleBodyFrame/RuleBodyText")?.GetComponent<Text>();
@@ -198,16 +195,6 @@ public class MenuScene : MonoBehaviour
         if (_roleSubtitleText != null)
         {
             _roleSubtitleText.text = RoleSubtitle;
-        }
-
-        if (_ruleTitleText != null)
-        {
-            _ruleTitleText.text = RuleTitle;
-        }
-
-        if (_ruleBodyText != null)
-        {
-            _ruleBodyText.text = BuildRuleDescription();
         }
 
     }
@@ -854,8 +841,6 @@ public class MenuScene : MonoBehaviour
         if (_ruleBodyText != null)
         {
             _ruleBodyText.enabled = true;
-            _ruleBodyText.text = BuildRuleDescription();
-            _ruleBodyText.alignment = TextAnchor.MiddleCenter;
         }
     }
 
@@ -874,15 +859,6 @@ public class MenuScene : MonoBehaviour
         {
             text.color = selected ? Color.white : new Color(0.3f, 0.3f, 0.3f, 1f);
         }
-    }
-
-    private string BuildRuleDescription()
-    {
-        return "\u89c4\u5219\u901f\u89c8\n" +
-               "1. \u6bcf\u56de\u5408\uff1a\u63b7\u9ab0 -> \u79fb\u52a8 -> \u7ed3\u7b97\u683c\u5b50\u3002\n" +
-               "2. \u5730\u4ea7\u683c\u53ef\u8d2d\u4e70\uff0c\u522b\u4eba\u505c\u4e0a\u8981\u4ed8\u8fc7\u8def\u8d39\u3002\n" +
-               "3. \u7b54\u9898\u683c\u7b54\u5bf9\u52a0\u94b1\uff0c\u7b54\u9519\u6263\u94b1\uff1b\u9053\u5177\u5361\u6536\u5165\u624b\u724c\uff0c\u8fd0\u6c14\u5361\u7acb\u5373\u751f\u6548\u3002\n" +
-               $"4. \u8d44\u91d1\u5f52\u96f6\u4f1a\u88ab\u6dd8\u6c70\uff1b\u5148\u8fbe\u5230 {GameManager.DefaultTargetMoneyToWin} \u5609\u79be\u5e01\uff0c\u6216\u6210\u4e3a\u6700\u540e\u7559\u5728\u573a\u4e0a\u7684\u89d2\u8272\uff0c\u5373\u53ef\u83b7\u80dc\u3002";
     }
 
     private void StartGame()
