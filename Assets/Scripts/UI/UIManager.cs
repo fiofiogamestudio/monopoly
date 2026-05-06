@@ -116,8 +116,11 @@ public class UIManager : MonoBehaviour
     private static readonly Vector2 HandDialogButtonSize = new Vector2(168f, 52f);
     private static readonly Vector2 PlayerHudItemFallbackSize = new Vector2(220f, 100f);
     private static readonly Vector2 ActionButtonSize = new Vector2(228f, 56f);
-    private static readonly Vector2 PropertyInfoPanelSize = new Vector2(284f, 236f);
+    private static readonly Vector2 PropertyInfoPanelSize = new Vector2(284f, 304f);
     private static readonly Vector2 PropertyInfoPanelOffset = new Vector2(-36f, 96f);
+    private static readonly Vector2 PropertyInfoImageMaskSize = new Vector2(252f, 156f);
+    private static readonly Vector2 PropertyInfoTextSize = new Vector2(252f, 34f);
+    private static readonly Vector2 PropertyInfoBodySize = new Vector2(252f, 64f);
     private static readonly Vector2 SettingsPanelSize = new Vector2(640f, 440f);
     private static readonly Vector2 SettingsWideButtonSize = new Vector2(220f, 52f);
     private static readonly Vector2Int[] SettingsResolutionOptions =
@@ -134,8 +137,9 @@ public class UIManager : MonoBehaviour
     private const string ResolutionWidthPrefsKey = "display_width";
     private const string ResolutionHeightPrefsKey = "display_height";
     private const string FullscreenPrefsKey = "display_fullscreen";
-    private const float ActionPanelWidth = 284f;
-    private const float ActionPanelVerticalPadding = 14f;
+    private const float PropertyInfoPanelMargin = 16f;
+    private const float ActionPanelWidth = 228f;
+    private const float ActionPanelVerticalPadding = 0f;
     private const float ActionButtonSpacing = 8f;
 
     private sealed class MoneyChangeFxRequest
@@ -369,6 +373,7 @@ public class UIManager : MonoBehaviour
         EnsureHandPanelLayout();
         CacheSceneCollections();
         EnsurePropertyInfoPanel();
+        ConfigureActionPanelVisuals();
         EnsureSettingsUi();
         ConfigureSceneDialogLayouts();
         BindSceneDialogs();
@@ -1034,6 +1039,50 @@ public class UIManager : MonoBehaviour
 
         HideLegacyPropertyInfoTransform("PropertyTitle");
         HideLegacyPropertyInfoTransform("PropertyBody");
+        ConfigurePropertyInfoContentLayout();
+    }
+
+    private void ConfigurePropertyInfoContentLayout()
+    {
+        if (propertyInfoPanel == null)
+        {
+            return;
+        }
+
+        if (propertyInfoImageMask != null)
+        {
+            SetTopCenteredRect(propertyInfoImageMask, -PropertyInfoPanelMargin, PropertyInfoImageMaskSize);
+        }
+
+        if (propertyInfoImage != null)
+        {
+            SetCenteredRect(propertyInfoImage.rectTransform, Vector2.zero, PropertyInfoImageMaskSize);
+        }
+
+        if (propertyInfoTitleText != null)
+        {
+            SetTopCenteredRect(propertyInfoTitleText.rectTransform, -184f, PropertyInfoTextSize);
+        }
+
+        if (propertyInfoBodyText != null)
+        {
+            SetTopCenteredRect(propertyInfoBodyText.rectTransform, -224f, PropertyInfoBodySize);
+        }
+    }
+
+    private void ConfigureActionPanelVisuals()
+    {
+        if (actionPanel == null)
+        {
+            return;
+        }
+
+        Image panelImage = actionPanel.GetComponent<Image>();
+        if (panelImage != null)
+        {
+            panelImage.enabled = false;
+            panelImage.raycastTarget = false;
+        }
     }
 
     private void EnsureSettingsUi()
@@ -1542,6 +1591,21 @@ public class UIManager : MonoBehaviour
         rect.localScale = Vector3.one;
     }
 
+    private void SetTopCenteredRect(RectTransform rect, float topY, Vector2 size)
+    {
+        if (rect == null)
+        {
+            return;
+        }
+
+        rect.anchorMin = new Vector2(0.5f, 1f);
+        rect.anchorMax = new Vector2(0.5f, 1f);
+        rect.pivot = new Vector2(0.5f, 1f);
+        rect.anchoredPosition = new Vector2(0f, topY);
+        rect.sizeDelta = size;
+        rect.localScale = Vector3.one;
+    }
+
     private void SetBottomCenteredRect(RectTransform rect, float bottomY, Vector2 size)
     {
         if (rect == null)
@@ -1765,14 +1829,7 @@ public class UIManager : MonoBehaviour
         }
         else if (ownerIndex == playerIndex)
         {
-            if (gameManager.CanUpgradeCurrentTile(playerIndex))
-            {
-                stateText = $"\u53ef\u5347\u7ea7\uff1a{tileData.upgradeCost} / \u8def\u8d39 {tileData.tileIncomeUpgrade}";
-            }
-            else
-            {
-                stateText = gameManager.IsTileUpgraded(tileIndex) ? "\u5df2\u5347\u7ea7" : "\u4f60\u7684\u5730\u4ea7";
-            }
+            stateText = "\u4f60\u7684\u5730\u4ea7";
         }
         else
         {
@@ -1980,6 +2037,7 @@ public class UIManager : MonoBehaviour
         bool canEndTurn = gameManager.CanHumanEndTurn();
 
         UpdateButtonState(MoveButton, canRoll);
+        UpdateBuyButtonLabel();
         UpdateButtonState(BuyButton, canBuy);
         UpdateButtonState(SkipButton, canEndTurn);
         ArrangeActionPanelButtons(canRoll, canBuy, canEndTurn);
@@ -2066,6 +2124,22 @@ public class UIManager : MonoBehaviour
         buttonRect.anchoredPosition = new Vector2(0f, topY);
         buttonRect.sizeDelta = ActionButtonSize;
         buttonRect.localScale = Vector3.one;
+    }
+
+    private void UpdateBuyButtonLabel()
+    {
+        if (BuyButton == null || gameManager == null)
+        {
+            return;
+        }
+
+        string label = "\u8d2d\u4e70\u5730\u4ea7";
+
+        Text buttonText = BuyButton.GetComponentInChildren<Text>(true);
+        if (buttonText != null && buttonText.text != label)
+        {
+            buttonText.text = label;
+        }
     }
 
     private bool TryInitPrefabPlayerHud()

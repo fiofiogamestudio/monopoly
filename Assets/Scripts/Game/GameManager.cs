@@ -128,7 +128,6 @@ public class GameManager : MonoBehaviour
     public int GetTileCurrentRent(int tileIndex, TileData tileData)
     {
         if (tileData == null) return 0;
-        if (IsTileUpgraded(tileIndex) && tileData.tileIncomeUpgrade > 0) return tileData.tileIncomeUpgrade;
         return tileData.tileIncome;
     }
 
@@ -188,7 +187,7 @@ public class GameManager : MonoBehaviour
 
     public bool CanHumanBuyCurrentTile()
     {
-        return !_gameEnded && !_HasBlockingInteraction() && !_IsCurrentPlayerAI() && status == Status.PlayerAction && _allowHumanInput && CanBuyOrUpgradeCurrentTile(currentPlayerIndex);
+        return !_gameEnded && !_HasBlockingInteraction() && !_IsCurrentPlayerAI() && status == Status.PlayerAction && _allowHumanInput && CanBuyCurrentTile(currentPlayerIndex);
     }
 
     public bool CanHumanEndTurn()
@@ -543,7 +542,7 @@ public class GameManager : MonoBehaviour
                 if (_gameEnded || !IsPlayerAlive(playerIndex)) yield break;
             }
 
-            if ((CanBuyCurrentTile(playerIndex) && ShouldAIBuyCurrentTile(playerIndex)) || ShouldAIUpgradeCurrentTile(playerIndex))
+            if (CanBuyCurrentTile(playerIndex) && ShouldAIBuyCurrentTile(playerIndex))
             {
                 TryBuyOrUpgradeCurrentTile(playerIndex);
                 acted = true;
@@ -832,21 +831,12 @@ public class GameManager : MonoBehaviour
 
     public bool CanUpgradeCurrentTile(int playerIndex)
     {
-        int tileIndex = GetPlayerCurrentTileIndexSafe(playerIndex);
-        if (tileIndex < 0) return false;
-        if (tileOwnerList == null || tileOwnerList.Count <= tileIndex) return false;
-        if (tileUpgradedList == null || tileUpgradedList.Count <= tileIndex) return false;
-        if (tileOwnerList[tileIndex] != playerIndex || tileUpgradedList[tileIndex]) return false;
-
-        TileController tc = GetCurrentTileController(playerIndex);
-        TileData td = tc != null ? tc.tileData : null;
-        if (td == null || td.upgradeCost <= 0) return false;
-        return tc == null || !tc.hasUpgraded;
+        return false;
     }
 
     public bool CanBuyOrUpgradeCurrentTile(int playerIndex)
     {
-        return CanBuyCurrentTile(playerIndex) || CanUpgradeCurrentTile(playerIndex);
+        return CanBuyCurrentTile(playerIndex);
     }
 
     public void AddMoney(int playerIndex, int delta, string reason = "")
@@ -1416,13 +1406,7 @@ public class GameManager : MonoBehaviour
 
     private bool ShouldAIUpgradeCurrentTile(int playerIndex)
     {
-        if (!CanUpgradeCurrentTile(playerIndex)) return false;
-
-        TileData td = GetCurrentTileData(playerIndex);
-        if (td == null || td.upgradeCost <= 0) return false;
-
-        int moneyAfterUpgrade = GetMoney(playerIndex) - td.upgradeCost;
-        return moneyAfterUpgrade >= aiBuyReserveMoney;
+        return false;
     }
 
     private int PickAIBuyPrepCard(int playerIndex)
