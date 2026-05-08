@@ -3,12 +3,13 @@ using UnityEngine;
 [System.Serializable]
 public enum TileType
 {
-    DiBiao,
-    FengWu,
-    ShiJian,
-    JiHui,
-    DaoJu,
-    DaTi
+    DiBiao = 0,
+    FengWu = 1,
+    QiDian = 2,
+    JiHui = 3,
+    DaoJu = 4,
+    DaTi = 5,
+    KongDi = 6
 }
 
 public static class TileTypeExtension
@@ -30,14 +31,16 @@ public static class TileTypeExtension
                 return "\u5730\u6807";
             case TileType.FengWu:
                 return "\u98ce\u7269";
-            case TileType.ShiJian:
-                return "\u4e8b\u4ef6";
+            case TileType.QiDian:
+                return "\u8d77\u70b9";
             case TileType.JiHui:
                 return "\u8fd0\u6c14";
             case TileType.DaoJu:
                 return "\u9053\u5177";
             case TileType.DaTi:
                 return "\u7b54\u9898";
+            case TileType.KongDi:
+                return "";
             default:
                 return "\u672a\u77e5";
         }
@@ -56,14 +59,16 @@ public static class TileTypeExtension
                 return CreatePalette("9C4A2D", "F2A65A", "C85B32", "FFD5A4", "4A2012");
             case TileType.FengWu:
                 return CreatePalette("2E7D54", "7ED49B", "1F9A64", "D8F8E3", "163526");
-            case TileType.ShiJian:
-                return CreatePalette("1E6E8A", "65C7DD", "1990B0", "D6F3F9", "103544");
+            case TileType.QiDian:
+                return CreatePalette("61705A", "B9D99B", "75A75A", "E1F5CD", "25351F");
             case TileType.JiHui:
                 return CreatePalette("A86811", "F4D35E", "E49B17", "FFF0B1", "5A3604");
             case TileType.DaoJu:
                 return CreatePalette("5A3A97", "9A78F0", "7A53D6", "E5D8FF", "28174C");
             case TileType.DaTi:
                 return CreatePalette("A83E5E", "F28CAB", "D65479", "FFD9E6", "4B1527");
+            case TileType.KongDi:
+                return CreatePalette("6B7280", "D1D5DB", "9CA3AF", "E5E7EB", "374151");
             default:
                 return CreatePalette("9CA3AF", "F8FAFC", "6B7280", "E5E7EB", "1F2937");
         }
@@ -178,5 +183,25 @@ public class GameConfigData
     public int startMoney = 8000;
     public bool enableTargetMoneyVictory = true;
     public int targetMoneyToWin = 18000;
+    public int[] targetMoneyToWinByLevel;
+
+    public int GetTargetMoneyToWinForLevel(int levelIndex, int fallbackTarget)
+    {
+        int target = fallbackTarget > 0 ? fallbackTarget : targetMoneyToWin;
+        int arrayIndex = levelIndex - 1;
+        if (targetMoneyToWinByLevel != null &&
+            arrayIndex >= 0 &&
+            arrayIndex < targetMoneyToWinByLevel.Length &&
+            targetMoneyToWinByLevel[arrayIndex] > 0)
+        {
+            target = targetMoneyToWinByLevel[arrayIndex];
+        }
+        else if (targetMoneyToWin > 0)
+        {
+            target = targetMoneyToWin;
+        }
+
+        return target;
+    }
 }
 

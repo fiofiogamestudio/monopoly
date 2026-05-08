@@ -83,7 +83,9 @@ public class TileController : MonoBehaviour
     private TextMesh ownerSignFrontTextMesh;
     private TextMesh tileNameTextMesh;
     private Vector3 modelBaseInitialLocalPosition;
+    private Vector3 customOutwardLocalDirection;
     private bool visualsCached;
+    private bool hasCustomOutwardLocalDirection;
 
     private void Awake()
     {
@@ -93,6 +95,20 @@ public class TileController : MonoBehaviour
     public void SetOffset(Vector3 offset)
     {
         gridOffset = offset;
+    }
+
+    public void SetCustomOutwardDirection(Vector3 localDirection)
+    {
+        localDirection.y = 0f;
+        if (localDirection.sqrMagnitude < 0.0001f)
+        {
+            hasCustomOutwardLocalDirection = false;
+            customOutwardLocalDirection = Vector3.zero;
+            return;
+        }
+
+        customOutwardLocalDirection = SnapLocalDirectionToAxis(localDirection);
+        hasCustomOutwardLocalDirection = true;
     }
 
     public void Init(TileData newTileData)
@@ -197,7 +213,9 @@ public class TileController : MonoBehaviour
         if (modelText != null)
         {
             modelText.font = labelFont;
-            modelText.text = tileData != null ? FormatTileLabel(tileData.tileName) : string.Empty;
+            modelText.text = tileData != null && tileData.tileType != TileType.KongDi
+                ? FormatTileLabel(tileData.tileName)
+                : string.Empty;
             modelText.color = tileData != null ? tileData.tileType.ToLabelColor() : new Color(0.12f, 0.12f, 0.12f, 1f);
             modelText.fontStyle = FontStyle.Bold;
             modelText.resizeTextForBestFit = true;
@@ -211,7 +229,7 @@ public class TileController : MonoBehaviour
         if (gridText != null)
         {
             gridText.font = labelFont;
-            gridText.text = tileData != null ? tileData.tileType.ToRealName() : string.Empty;
+            gridText.text = GetGridLabel(tileData);
             gridText.color = Color.white;
             gridText.fontStyle = FontStyle.Bold;
             gridText.resizeTextForBestFit = true;
@@ -248,7 +266,7 @@ public class TileController : MonoBehaviour
 
         if (tileNameTextMesh != null)
         {
-            string tileLabel = IsPropertyTile(tileData) ? FormatTileNameLabel(tileData.tileName) : string.Empty;
+            string tileLabel = GetTileSurfaceLabel(tileData);
             Font resolvedTileNameFont = ResolveTileNameFont(tileLabel);
             tileNameTextMesh.font = resolvedTileNameFont;
             tileNameTextMesh.text = tileLabel;
@@ -285,7 +303,7 @@ public class TileController : MonoBehaviour
 
         if (tileNameTextMesh != null)
         {
-            bool hasName = IsPropertyTile(tileData) && !string.IsNullOrWhiteSpace(tileData.tileName);
+            bool hasName = ShouldShowTileSurfaceLabel(tileData);
             tileNameTextMesh.gameObject.SetActive(hasName);
         }
     }
@@ -456,10 +474,11 @@ public class TileController : MonoBehaviour
         if (TryGetLevelNumber(data, out int levelNumber))
         {
             folders.Add($"Prefabs/TileModels/Level{levelNumber}");
+            folders.Add($"TileModels/Level{levelNumber}");
         }
 
         folders.Add("Prefabs/TileModels");
-        folders.Add("Prefabs/TileModels1");
+        folders.Add("TileModels");
         return folders.ToArray();
     }
 
@@ -479,6 +498,10 @@ public class TileController : MonoBehaviour
             }
 
             GameObject modelPrefab = Resources.Load<GameObject>($"{folder}/{tileName}");
+            if (modelPrefab == null)
+            {
+                modelPrefab = Resources.Load<GameObject>($"{folder}/{tileName}/{tileName}");
+            }
             if (modelPrefab != null)
             {
                 return modelPrefab;
@@ -865,6 +888,11 @@ public class TileController : MonoBehaviour
 
     private Vector3 GetOutwardLocalDirection(Bounds tileBounds)
     {
+        if (hasCustomOutwardLocalDirection)
+        {
+            return customOutwardLocalDirection;
+        }
+
         Transform slot = transform.parent;
         Transform mapRoot = slot != null ? slot.parent : null;
         if (TryGetActiveRectLoopOutwardDirection(slot, mapRoot, out Vector3 rectWorldDirection))
@@ -888,6 +916,11 @@ public class TileController : MonoBehaviour
     private Vector3 SnapWorldDirectionToLocalAxis(Vector3 worldDirection)
     {
         Vector3 localDirection = transform.InverseTransformDirection(worldDirection.normalized);
+        return SnapLocalDirectionToAxis(localDirection);
+    }
+
+    private static Vector3 SnapLocalDirectionToAxis(Vector3 localDirection)
+    {
         localDirection.y = 0f;
 
         if (localDirection.sqrMagnitude < 0.0001f)
@@ -1339,6 +1372,55 @@ public class TileController : MonoBehaviour
     private static bool IsPropertyTile(TileData data)
     {
         return data != null && data.tileCost > 0;
+    }
+
+    private static bool IsStartTile(TileData data)
+    {
+        if (data == null)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(data.tileID))
+        {
+            string tileId = data.tileID.Trim().ToUpperInvariant();
+            if (tileId.StartsWith("ST") || tileId.Contains("-ST"))
+            {
+                return true;
+            }
+        }
+
+        return !string.IsNullOrWhiteSpace(data.tileName) && data.tileName.Contains("起点");
+    }
+
+    private static string GetGridLabel(TileData data)
+    {
+        if (data == null)
+        {
+            return string.Empty;
+        }
+
+        if (data.tileType == TileType.KongDi)
+        {
+            return string.Empty;
+        }
+
+        return IsStartTile(data) ? "起点" : data.tileType.ToRealName();
+    }
+
+    private static string GetTileSurfaceLabel(TileData data)
+    {
+        if (IsStartTile(data))
+        {
+            return "起点";
+        }
+
+        return IsPropertyTile(data) ? FormatTileNameLabel(data.tileName) : string.Empty;
+    }
+
+    private static bool ShouldShowTileSurfaceLabel(TileData data)
+    {
+        return IsStartTile(data) || (IsPropertyTile(data) && !string.IsNullOrWhiteSpace(data.tileName));
     }
 
     private static string FormatOwnerLabel(string ownerName)

@@ -120,10 +120,11 @@ public static class GameSessionConfig
 {
     public const int MinLevelIndex = 1;
     public const int MaxLevelIndex = 3;
-    public const int DefaultLevelIndex = 3;
-    private const string DebugDefaultLevelPrefsKey = "Monopoly.DebugDefaultLevel";
+    public const int DefaultLevelIndex = 1;
+    public const int DefaultTargetMoneyToWin = 18000;
     public const int MinPlayerCount = 1;
     public const int MaxPlayerCount = 4;
+    private static readonly int[] DefaultTargetMoneyToWinByLevel = { 12000, 14000, 18000 };
 
     public static int SelectedLevel { get; private set; } = DefaultLevelIndex;
     public static bool HasExplicitLevelSelection { get; private set; }
@@ -141,9 +142,6 @@ public static class GameSessionConfig
     public static int SetDebugDefaultLevel(int levelIndex)
     {
         int clampedLevel = Mathf.Clamp(levelIndex, MinLevelIndex, MaxLevelIndex);
-        PlayerPrefs.SetInt(DebugDefaultLevelPrefsKey, clampedLevel);
-        PlayerPrefs.Save();
-
         SelectedLevel = clampedLevel;
         HasExplicitLevelSelection = true;
         return clampedLevel;
@@ -159,14 +157,44 @@ public static class GameSessionConfig
     public static int ResolveDefaultLevel(int fallbackLevel)
     {
         int clampedFallback = Mathf.Clamp(fallbackLevel, MinLevelIndex, MaxLevelIndex);
-        int storedLevel = PlayerPrefs.GetInt(DebugDefaultLevelPrefsKey, clampedFallback);
-        return Mathf.Clamp(storedLevel, MinLevelIndex, MaxLevelIndex);
+        return clampedFallback;
     }
 
     public static void ResetLevelSelection()
     {
-        SelectedLevel = ResolveDefaultLevel(DefaultLevelIndex);
+        SelectedLevel = DefaultLevelIndex;
         HasExplicitLevelSelection = false;
+    }
+
+    public static int GetDefaultTargetMoneyToWin(int levelIndex)
+    {
+        int clampedLevel = Mathf.Clamp(levelIndex, MinLevelIndex, MaxLevelIndex);
+        int arrayIndex = clampedLevel - MinLevelIndex;
+        if (arrayIndex >= 0 && arrayIndex < DefaultTargetMoneyToWinByLevel.Length)
+        {
+            return DefaultTargetMoneyToWinByLevel[arrayIndex];
+        }
+
+        return DefaultTargetMoneyToWin;
+    }
+
+    public static int GetConfiguredTargetMoneyToWin(int levelIndex)
+    {
+        int fallbackTarget = GetDefaultTargetMoneyToWin(levelIndex);
+        try
+        {
+            GameConfigData config = DataLoader.LoadJson<GameConfigData>("game_config");
+            if (config != null)
+            {
+                return config.GetTargetMoneyToWinForLevel(levelIndex, fallbackTarget);
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning($"[Config] Failed to resolve level target money: {e.Message}");
+        }
+
+        return fallbackTarget;
     }
 
     public static void SetHumanRole(RoleId roleId)
@@ -399,7 +427,14 @@ public class PlayerManager : MonoBehaviour
 
     public string GetPlayerDisplayName(int playerIndex)
     {
-        return GetPlayerLabel(playerIndex);
+        string roleName = GetPlayerRoleDisplayName(playerIndex);
+        string label = GetPlayerLabel(playerIndex);
+        if (string.IsNullOrWhiteSpace(roleName))
+        {
+            return label;
+        }
+
+        return $"{roleName}\uff08{label}\uff09";
     }
 
     public string GetPlayerRoleDisplayName(int playerIndex)
@@ -509,6 +544,7 @@ public class PlayerManager : MonoBehaviour
         }
 
         RefreshPlayerPositions();
+        RefreshPlayerFacingsToNextTile();
         CapturePlayerYOffsets();
         UpdateTurnMarkers();
         UpdateActivePlayerHighlights();
@@ -525,6 +561,14 @@ public class PlayerManager : MonoBehaviour
         for (int tileIndex = 0; tileIndex < generatedMapCount; tileIndex++)
         {
             ArrangePlayersOnTile(tileIndex);
+        }
+    }
+
+    public void RefreshPlayerFacingsToNextTile()
+    {
+        for (int i = 0; i < playerList.Count; i++)
+        {
+            ApplyFacingToNextTile(i);
         }
     }
 
@@ -598,6 +642,7 @@ public class PlayerManager : MonoBehaviour
             GameObject player = playerList[playerIndex];
             int currentPosIndex = playerTileIndexList[playerIndex];
             int nextPosIndex = WrapTileIndex(currentPosIndex + direction);
+            AudioManager.Instance.PlaySfxAt(GetPlayerStepAudioId(playerIndex), player.transform.position);
 
             playerTileIndexList[playerIndex] = nextPosIndex;
             ArrangePlayersOnTile(currentPosIndex, playerIndex, smooth: true);
@@ -660,6 +705,23 @@ public class PlayerManager : MonoBehaviour
         }
 
         playerIsMovingList[playerIndex] = false;
+    }
+
+    private string GetPlayerStepAudioId(int playerIndex)
+    {
+        switch (GetPlayerRoleId(playerIndex))
+        {
+            case RoleId.Duck:
+                return AudioIds.PlayerStepDuck;
+            case RoleId.Rabbit:
+                return AudioIds.PlayerStepRabbit;
+            case RoleId.Panda:
+                return AudioIds.PlayerStepPanda;
+            case RoleId.Dog:
+                return AudioIds.PlayerStepDog;
+            default:
+                return AudioIds.PlayerStep;
+        }
     }
 
     public bool IsAnyVisualMovementActive()
@@ -925,6 +987,11 @@ public class PlayerManager : MonoBehaviour
 
     private void ApplyInitialFacing(int playerIndex)
     {
+        ApplyFacingToNextTile(playerIndex);
+    }
+
+    private void ApplyFacingToNextTile(int playerIndex)
+    {
         if (playerIndex < 0 || playerIndex >= playerList.Count)
         {
             return;
@@ -936,8 +1003,15 @@ public class PlayerManager : MonoBehaviour
             return;
         }
 
-        Vector3 initialDirection = (GetTileCenterPosition(1) - GetTileCenterPosition(0)).normalized;
-        ApplyFacingDirection(player.transform, initialDirection);
+        int currentTileIndex = 0;
+        if (playerIndex < playerTileIndexList.Count)
+        {
+            currentTileIndex = WrapTileIndex(playerTileIndexList[playerIndex]);
+        }
+
+        int nextTileIndex = WrapTileIndex(currentTileIndex + 1);
+        Vector3 facingDirection = GetTileCenterPosition(nextTileIndex) - GetTileCenterPosition(currentTileIndex);
+        ApplyFacingDirection(player.transform, facingDirection);
     }
 
     private void ApplyFacingDirection(Transform playerTransform, Vector3 moveDirection)

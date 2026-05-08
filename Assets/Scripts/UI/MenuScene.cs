@@ -27,8 +27,8 @@ public class MenuScene : MonoBehaviour
     private static readonly string[] LevelDisplayNames =
     {
         "\u7b2c\u4e00\u5173\n\u670d\u9970",
-        "\u7b2c\u4e8c\u5173\n\u5730\u6807",
-        "\u7b2c\u4e09\u5173\n\u7f8e\u98df"
+        "\u7b2c\u4e8c\u5173\n\u7f8e\u98df",
+        "\u7b2c\u4e09\u5173\n\u5730\u6807"
     };
     private static readonly Color SelectedBorderColor = new Color(0.99f, 0.95f, 0.74f, 1f);
     private static readonly Color SelectedPortraitFrameColor = new Color(0.98f, 0.96f, 0.86f, 1f);
@@ -75,6 +75,7 @@ public class MenuScene : MonoBehaviour
     private GameObject _ruleSummaryFrame;
     private Text _ruleSummaryText;
     private Text _ruleBodyText;
+    private string _ruleBodyTemplate;
     private Image _rulePortraitImage;
     private Image _rulePortraitFrameImage;
     private RectTransform _ruleCardAnchor;
@@ -121,6 +122,7 @@ public class MenuScene : MonoBehaviour
 
     private void Start()
     {
+        AudioManager.Instance.PlayBgm(AudioIds.MenuBgm);
         Canvas canvas = FindSceneCanvas();
         _canvasRoot = canvas != null ? canvas.GetComponent<RectTransform>() : transform as RectTransform;
         _defaultFont = LoadMenuFont();
@@ -132,7 +134,8 @@ public class MenuScene : MonoBehaviour
         }
 
         ApplyFontToExistingTexts(_canvasRoot);
-        selectedLevel = GameSessionConfig.ResolveLevel(selectedLevel);
+        GameSessionConfig.ResetLevelSelection();
+        selectedLevel = GameSessionConfig.ResolveLevel(GameSessionConfig.DefaultLevelIndex);
         minPlayers = GameSessionConfig.MinPlayerCount;
         maxPlayers = GameSessionConfig.MaxPlayerCount;
         selectedPlayerCount = Mathf.Clamp(selectedPlayerCount, minPlayers, maxPlayers);
@@ -226,6 +229,7 @@ public class MenuScene : MonoBehaviour
         _ruleSummaryFrame = _menuShellInstance.transform.Find("RulePanel/RuleSummaryFrame")?.gameObject;
         _ruleSummaryText = _menuShellInstance.transform.Find("RulePanel/RuleSummaryFrame/RuleSummaryText")?.GetComponent<Text>();
         _ruleBodyText = _menuShellInstance.transform.Find("RulePanel/RuleBodyFrame/RuleBodyText")?.GetComponent<Text>();
+        _ruleBodyTemplate = _ruleBodyText != null ? _ruleBodyText.text : string.Empty;
         _ruleCardAnchor = _menuShellInstance.transform.Find("RulePanel/RulePortraitFrame") as RectTransform;
         _rulePortraitFrameImage = _menuShellInstance.transform.Find("RulePanel/RulePortraitFrame")?.GetComponent<Image>();
         _rulePortraitImage = _menuShellInstance.transform.Find("RulePanel/RulePortraitFrame/RulePortraitImage")?.GetComponent<Image>();
@@ -454,8 +458,7 @@ public class MenuScene : MonoBehaviour
             RoleId roleId = role.roleId;
             if (runtime.button != null)
             {
-                runtime.button.onClick.RemoveAllListeners();
-                runtime.button.onClick.AddListener(() => OnRoleCardClicked(roleId));
+                BindButtonClick(runtime.button, () => OnRoleCardClicked(roleId));
             }
             _roleCards.Add(runtime);
         }
@@ -485,50 +488,42 @@ public class MenuScene : MonoBehaviour
     {
         if (StartButton != null)
         {
-            StartButton.onClick.RemoveAllListeners();
-            StartButton.onClick.AddListener(ShowLevelSelection);
+            BindButtonClick(StartButton, ShowLevelSelection);
         }
 
         if (_quitButton != null)
         {
-            _quitButton.onClick.RemoveAllListeners();
-            _quitButton.onClick.AddListener(QuitGame);
+            BindButtonClick(_quitButton, QuitGame);
         }
 
         if (_roleBackButton != null)
         {
-            _roleBackButton.onClick.RemoveAllListeners();
-            _roleBackButton.onClick.AddListener(ShowPlayerCountSelection);
+            BindButtonClick(_roleBackButton, ShowPlayerCountSelection);
         }
 
         if (_roleNextButton != null)
         {
-            _roleNextButton.onClick.RemoveAllListeners();
-            _roleNextButton.onClick.AddListener(OpenRulePanel);
+            BindButtonClick(_roleNextButton, OpenRulePanel);
         }
 
         if (_ruleBackButton != null)
         {
-            _ruleBackButton.onClick.RemoveAllListeners();
-            _ruleBackButton.onClick.AddListener(OpenRoleSelect);
+            BindButtonClick(_ruleBackButton, OpenRoleSelect);
         }
 
         if (_enterGameButton != null)
         {
-            _enterGameButton.onClick.RemoveAllListeners();
-            _enterGameButton.onClick.AddListener(StartGame);
+            BindButtonClick(_enterGameButton, StartGame);
         }
 
         if (_levelBackButton != null)
         {
-            _levelBackButton.onClick.RemoveAllListeners();
-            _levelBackButton.onClick.AddListener(ShowMainMenu);
+            BindButtonClick(_levelBackButton, ShowMainMenu);
         }
 
         if (_levelNextButton != null)
         {
-            _levelNextButton.onClick.RemoveAllListeners();
-            _levelNextButton.onClick.AddListener(ShowPlayerCountSelection);
+            BindButtonClick(_levelNextButton, ShowPlayerCountSelection);
         }
 
         if (_levelButtons != null)
@@ -542,21 +537,18 @@ public class MenuScene : MonoBehaviour
                     continue;
                 }
 
-                _levelButtons[index].onClick.RemoveAllListeners();
-                _levelButtons[index].onClick.AddListener(() => SelectLevel(selected));
+                BindButtonClick(_levelButtons[index], () => SelectLevel(selected));
             }
         }
 
         if (_playerCountBackButton != null)
         {
-            _playerCountBackButton.onClick.RemoveAllListeners();
-            _playerCountBackButton.onClick.AddListener(ShowLevelSelection);
+            BindButtonClick(_playerCountBackButton, ShowLevelSelection);
         }
 
         if (_playerCountNextButton != null)
         {
-            _playerCountNextButton.onClick.RemoveAllListeners();
-            _playerCountNextButton.onClick.AddListener(OpenRoleSelect);
+            BindButtonClick(_playerCountNextButton, OpenRoleSelect);
         }
 
         if (_playerCountButtons != null)
@@ -570,8 +562,7 @@ public class MenuScene : MonoBehaviour
                     continue;
                 }
 
-                _playerCountButtons[index].onClick.RemoveAllListeners();
-                _playerCountButtons[index].onClick.AddListener(() => SelectPlayerCount(count));
+                BindButtonClick(_playerCountButtons[index], () => SelectPlayerCount(count));
             }
         }
 
@@ -585,10 +576,24 @@ public class MenuScene : MonoBehaviour
                     continue;
                 }
 
-                _playerSlotButtons[i].onClick.RemoveAllListeners();
-                _playerSlotButtons[i].onClick.AddListener(() => OnSlotButtonClicked(slotIndex));
+                BindButtonClick(_playerSlotButtons[i], () => OnSlotButtonClicked(slotIndex));
             }
         }
+    }
+
+    private void BindButtonClick(Button button, UnityEngine.Events.UnityAction action)
+    {
+        if (button == null)
+        {
+            return;
+        }
+
+        button.onClick.RemoveAllListeners();
+        button.onClick.AddListener(() =>
+        {
+            AudioManager.Instance.PlayUi(AudioIds.ButtonClick);
+            action?.Invoke();
+        });
     }
 
     private void ShowMainMenu()
@@ -1055,7 +1060,30 @@ public class MenuScene : MonoBehaviour
         if (_ruleBodyText != null)
         {
             _ruleBodyText.enabled = true;
+            _ruleBodyText.text = BuildRuleBodyText();
         }
+    }
+
+    private string BuildRuleBodyText()
+    {
+        int targetMoney = GameSessionConfig.GetConfiguredTargetMoneyToWin(selectedLevel);
+        if (string.IsNullOrEmpty(_ruleBodyTemplate))
+        {
+            return $"1. \u63b7\u9ab0\u540e\u6309\u70b9\u6570\u79fb\u52a8\uff0c\u843d\u5230\u683c\u5b50\u540e\u7ed3\u7b97\u6548\u679c\u3002\n" +
+                   $"2. \u5730\u4ea7\u683c\u53ef\u8d2d\u4e70\uff0c\u5176\u4ed6\u89d2\u8272\u505c\u7559\u652f\u4ed8\u8d39\u7528\u3002\n" +
+                   $"3. \u7b54\u9898\u683c\u7b54\u5bf9\u52a0\u94b1\uff0c\u7b54\u9519\u6263\u94b1\u3002\n" +
+                   $"4. \u9053\u5177\u5361\u8fdb\u624b\u724c\uff0c\u8fd0\u6c14\u5361\u7acb\u5373\u751f\u6548\u3002\n" +
+                   $"5. \u7387\u5148\u83b7\u5f97{targetMoney}\u5609\u79be\u5e01\u80dc\u5229\u3002";
+        }
+
+        string targetText = targetMoney.ToString();
+        string bodyText = _ruleBodyTemplate
+            .Replace("{TARGET_MONEY}", targetText)
+            .Replace("\u672c\u5173\u76ee\u6807\u91d1\u989d", targetText);
+
+        return bodyText != _ruleBodyTemplate
+            ? bodyText
+            : _ruleBodyTemplate.Replace("18000", targetText);
     }
 
     private void ApplyPlayerCountButtonStyle(Button button, bool selected)

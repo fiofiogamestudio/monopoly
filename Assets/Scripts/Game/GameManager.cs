@@ -17,7 +17,7 @@ public enum Status
 public class GameManager : MonoBehaviour
 {
     public const int DefaultStartMoney = 8000;
-    public const int DefaultTargetMoneyToWin = 18000;
+    public const int DefaultTargetMoneyToWin = GameSessionConfig.DefaultTargetMoneyToWin;
     private const string DiceRollPanelPrefabPath = "Prefabs/UI/DiceRollPanel";
     private const string BuyablePropertySignText = "\u53ef\u8d2d\u4e70";
     private static readonly Color BuyablePropertySignColor = new Color(0.22f, 0.62f, 0.36f, 1f);
@@ -102,6 +102,8 @@ public class GameManager : MonoBehaviour
 
     private void Start()
     {
+        RefreshVictoryTargetFromLoadedMap();
+        AudioManager.Instance.PlayBgm(AudioIds.GameBgm);
         StartGame();
     }
 
@@ -251,7 +253,6 @@ public class GameManager : MonoBehaviour
         return playerIndex >= 0 && playerIndex < playerToolCardsList.Count ? playerToolCardsList[playerIndex] : new List<CardData>();
     }
 
-#if UNITY_EDITOR
     public CardData EditorGiveRandomToolCardToCurrentPlayer()
     {
         int playerIndex = currentPlayerIndex;
@@ -318,7 +319,6 @@ public class GameManager : MonoBehaviour
         Debug.Log($"[Editor] M \u6d4b\u8bd5\u52a0\u94b1\uff1a{GetPlayerDisplayName(playerIndex)} +{amount} \u5609\u79be\u5e01");
         return true;
     }
-#endif
 
     public void RequestRollDice()
     {
@@ -391,6 +391,12 @@ public class GameManager : MonoBehaviour
             if (alivePlayerCount <= 0)
             {
                 FinishGame(-1);
+                break;
+            }
+
+            if (GetAliveHumanPlayerCount() <= 0)
+            {
+                FinishGame(-1, "\u6240\u6709\u73a9\u5bb6\u90fd\u5df2\u51fa\u5c40\uff0c\u6e38\u620f\u5931\u8d25\u3002");
                 break;
             }
 
@@ -644,9 +650,25 @@ public class GameManager : MonoBehaviour
         TileData td = tc != null ? tc.tileData : null;
         if (td == null) return;
 
-        Debug.Log($"[ENTER] P{player + 1} -> {td.tileName} ({td.enterEffect})");
-        ExecuteEffectByInvoke(td.enterEffect, player, tileIndex, false);
+        string enterEffect = GetEnterEffectForTile(td, tileIndex);
+        Debug.Log($"[ENTER] P{player + 1} -> {td.tileName} ({enterEffect})");
+        ExecuteEffectByInvoke(enterEffect, player, tileIndex, false);
         TryPayRentOnEnter(player, tileIndex, td);
+    }
+
+    private string GetEnterEffectForTile(TileData tileData, int tileIndex)
+    {
+        return IsLuckQuestionMarkTile(tileData, tileIndex) ? "destiny" : tileData.enterEffect;
+    }
+
+    private bool IsLuckQuestionMarkTile(TileData tileData, int tileIndex)
+    {
+        if (tileData == null || IsStartTile(tileIndex))
+        {
+            return false;
+        }
+
+        return tileData.tileType == TileType.JiHui;
     }
 
     private void NormalizeAIList()
@@ -705,9 +727,10 @@ public class GameManager : MonoBehaviour
 
     private void LoadGameConfig()
     {
+        int resolvedLevel = GameSessionConfig.ResolveLevel(GameSessionConfig.DefaultLevelIndex);
         startMoney = DefaultStartMoney;
         enableTargetMoneyVictory = true;
-        targetMoneyToWin = DefaultTargetMoneyToWin;
+        targetMoneyToWin = GameSessionConfig.GetDefaultTargetMoneyToWin(resolvedLevel);
 
         try
         {
@@ -725,6 +748,8 @@ public class GameManager : MonoBehaviour
                 {
                     targetMoneyToWin = config.targetMoneyToWin;
                 }
+
+                targetMoneyToWin = config.GetTargetMoneyToWinForLevel(resolvedLevel, targetMoneyToWin);
             }
         }
         catch (Exception e)
@@ -738,6 +763,22 @@ public class GameManager : MonoBehaviour
             targetMoneyToWin = Mathf.Max(startMoney + 1000, targetMoneyToWin);
         }
 
+    }
+
+    private void RefreshVictoryTargetFromLoadedMap()
+    {
+        int resolvedLevel = GameSessionConfig.ResolveLevel(GameSessionConfig.DefaultLevelIndex);
+        MapLoader mapLoader = FindObjectOfType<MapLoader>();
+        if (mapLoader != null && mapLoader.CurrentLevel >= GameSessionConfig.MinLevelIndex)
+        {
+            resolvedLevel = mapLoader.CurrentLevel;
+        }
+
+        targetMoneyToWin = GameSessionConfig.GetConfiguredTargetMoneyToWin(resolvedLevel);
+        if (enableTargetMoneyVictory)
+        {
+            targetMoneyToWin = Mathf.Max(startMoney + 1000, targetMoneyToWin);
+        }
     }
 
     private void ApplySessionConfig()
@@ -943,6 +984,10 @@ public class GameManager : MonoBehaviour
         {
             FinishGame(-1);
         }
+        else if (GetAliveHumanPlayerCount() <= 0)
+        {
+            FinishGame(-1, "\u6240\u6709\u73a9\u5bb6\u90fd\u5df2\u51fa\u5c40\uff0c\u6e38\u620f\u5931\u8d25\u3002");
+        }
         else if (totalPlayers >= 2 && alivePlayerCount <= 1)
         {
             FinishGame(FindFirstAlivePlayer());
@@ -1005,6 +1050,17 @@ public class GameManager : MonoBehaviour
         return count;
     }
 
+    private int GetAliveHumanPlayerCount()
+    {
+        int count = 0;
+        for (int i = 0; i < playerAliveList.Count; i++)
+        {
+            if (playerAliveList[i] && !IsAI(i)) count++;
+        }
+
+        return count;
+    }
+
     private void FinishGame(int winnerIndex, string customMessage = null)
     {
         if (_gameEnded) return;
@@ -1012,13 +1068,25 @@ public class GameManager : MonoBehaviour
         _gameEnded = true;
         status = Status.GameOver;
         _allowHumanInput = false;
+        AudioManager.Instance.PlaySfx(AudioIds.VictoryMain);
+        AudioManager.Instance.PlaySfx(AudioIds.VictoryLayer);
         string message = !string.IsNullOrEmpty(customMessage)
             ? customMessage
             : (winnerIndex >= 0 && IsPlayerAlive(winnerIndex)
                 ? $"{GetPlayerDisplayName(winnerIndex)} \u83b7\u5f97\u4e86\u6700\u7ec8\u80dc\u5229\u3002"
                 : "\u6240\u6709\u73a9\u5bb6\u90fd\u5df2\u51fa\u5c40\u3002");
         Debug.Log($"[GameOver] {message}");
-        if (UIManager.Instance != null) UIManager.Instance.ShowNotice("\u6e38\u620f\u7ed3\u675f", message, "\u786e\u5b9a");
+        if (UIManager.Instance != null)
+        {
+            UIManager.Instance.ShowGameResultMenu(GetGameResultTitle(winnerIndex), message);
+        }
+    }
+
+    private string GetGameResultTitle(int winnerIndex)
+    {
+        return winnerIndex >= 0 && IsPlayerAlive(winnerIndex) && !IsAI(winnerIndex)
+            ? "\u6e38\u620f\u80dc\u5229"
+            : "\u6e38\u620f\u5931\u8d25";
     }
 
     private bool TryFinishByMoneyTarget(int playerIndex)
@@ -1114,6 +1182,7 @@ public class GameManager : MonoBehaviour
             RefreshTileOwnershipVisual(tileIndex);
 
             Debug.Log($"[Property] {GetPlayerDisplayName(playerIndex)} 闂佽崵濮甸崝锕傚储濞差亜绠梺顒€绉甸弲?{td.tileName}闂備焦瀵х粙鎴︽儗娴ｈ鍙忛柟鎯板Г閺?{td.tileCost}");
+            AudioManager.Instance.PlaySfx(AudioIds.PropertyBuy);
             ApplyPropertyPurchaseBonuses(playerIndex);
             return true;
         }
@@ -1209,6 +1278,7 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator PlayDiceRollAnimation(int diceValue)
     {
+        AudioManager.Instance.PlaySfx(AudioIds.DiceRoll);
         DiceRollAnimator animator = EnsureDiceRollAnimator();
         if (animator == null)
         {
@@ -1452,6 +1522,11 @@ public class GameManager : MonoBehaviour
             return -6;
         }
 
+        if (IsLuckQuestionMarkTile(td, tileIndex))
+        {
+            return 3;
+        }
+
         if (!string.IsNullOrEmpty(td.enterEffect))
         {
             if (td.enterEffect.StartsWith("question", StringComparison.OrdinalIgnoreCase)) return 5;
@@ -1605,9 +1680,9 @@ public class GameManager : MonoBehaviour
             case 1:
                 return "\u670d\u9970";
             case 2:
-                return "\u5730\u6807";
-            case 3:
                 return "\u7f8e\u98df";
+            case 3:
+                return "\u5730\u6807";
             default:
                 return string.Empty;
         }
@@ -1636,7 +1711,14 @@ public class GameManager : MonoBehaviour
 
     private void QueueMoneyChangeFeedback(int playerIndex, int oldMoney, int newMoney)
     {
-        if (oldMoney == newMoney || UIManager.Instance == null)
+        if (oldMoney == newMoney)
+        {
+            return;
+        }
+
+        AudioManager.Instance.PlaySfx(AudioIds.MoneyChange);
+
+        if (UIManager.Instance == null)
         {
             return;
         }
@@ -1688,6 +1770,7 @@ public class GameManager : MonoBehaviour
 
         List<CardData> hand = playerToolCardsList[playerIndex];
         hand.Add(card);
+        AudioManager.Instance.PlaySfx(AudioIds.ToolGain);
         Debug.Log($"[Tool] {GetPlayerDisplayName(playerIndex)} \u83b7\u5f97\u9053\u5177\u5361\uff1a{card.cardName}");
 
         if (hand.Count > maxToolCardsPerPlayer)
@@ -1786,6 +1869,11 @@ public class GameManager : MonoBehaviour
         }
 
         bool correct = answerIndex == question.answerIndex;
+        if (!IsAI(playerIndex))
+        {
+            AudioManager.Instance.PlaySfx(correct ? AudioIds.AnswerCorrect : AudioIds.AnswerWrong);
+        }
+
         if (!IsAI(playerIndex) && UIManager.Instance != null)
         {
             bool confirmed = false;

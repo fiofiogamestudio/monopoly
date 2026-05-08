@@ -122,6 +122,7 @@ public class SceneTransitionManager : MonoBehaviour
     private void BeginTransition(string sceneName)
     {
         EnsureOverlay();
+        AudioManager.Instance.PlaySfx(AudioIds.Transition);
 
         if (initialFadeRoutine != null)
         {

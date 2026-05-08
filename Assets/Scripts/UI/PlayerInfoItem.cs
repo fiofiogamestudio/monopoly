@@ -11,6 +11,7 @@ public class PlayerInfoItem : MonoBehaviour
     public RectTransform propertyCardRoot;
     public Image propertyCardBackground;
     public Text propertyCardText;
+    public GameObject isPlayingRoot;
 
     private bool _alive = true;
     private bool _highlighted;
@@ -37,6 +38,13 @@ public class PlayerInfoItem : MonoBehaviour
             avatarMaskRoot = avatarImage.transform.parent.GetComponent<RectTransform>();
         }
 
+        if (isPlayingRoot == null)
+        {
+            Transform isPlayingTransform = transform.Find("IsPlaying");
+            isPlayingRoot = isPlayingTransform != null ? isPlayingTransform.gameObject : null;
+        }
+
+        RefreshVisuals();
     }
 
     public void ApplyRuntimeStyle(Font font, Color accentColor)
@@ -94,6 +102,11 @@ public class PlayerInfoItem : MonoBehaviour
 
     private void RefreshVisuals()
     {
+        if (isPlayingRoot != null)
+        {
+            isPlayingRoot.SetActive(_alive && _highlighted);
+        }
+
         RefreshTexts();
     }
 

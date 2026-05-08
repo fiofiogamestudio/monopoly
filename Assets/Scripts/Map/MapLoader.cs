@@ -41,7 +41,7 @@ public class MapLoader : MonoBehaviour
         }
 
         int resolvedLevel = GameSessionConfig.SetDebugDefaultLevel(requestedLevel);
-        Debug.Log($"[MapLoader] Debug default level set to {resolvedLevel}.");
+        Debug.Log($"[MapLoader] Debug level set to {resolvedLevel} for this session.");
 
         if (!reloadSceneOnDebugLevelChange || resolvedLevel == CurrentLevel)
         {
@@ -53,7 +53,8 @@ public class MapLoader : MonoBehaviour
 
     private void LoadResolvedLevel()
     {
-        LoadLevel(GameSessionConfig.ResolveLevel(defaultLevel));
+        defaultLevel = GameSessionConfig.DefaultLevelIndex;
+        LoadLevel(GameSessionConfig.ResolveLevel(GameSessionConfig.DefaultLevelIndex));
     }
 
     private void LoadLevel(int levelIndex)

@@ -125,8 +125,6 @@ public class UIManager : MonoBehaviour
     private static readonly Vector2 SettingsWideButtonSize = new Vector2(220f, 52f);
     private static readonly Vector2Int[] SettingsResolutionOptions =
     {
-        new Vector2Int(1280, 720),
-        new Vector2Int(1600, 900),
         new Vector2Int(1920, 1080),
         new Vector2Int(2560, 1440)
     };
@@ -137,6 +135,8 @@ public class UIManager : MonoBehaviour
     private const string ResolutionWidthPrefsKey = "display_width";
     private const string ResolutionHeightPrefsKey = "display_height";
     private const string FullscreenPrefsKey = "display_fullscreen";
+    private const int MinResolutionWidth = 1920;
+    private const int MinResolutionHeight = 1080;
     private const float PropertyInfoPanelMargin = 16f;
     private const float ActionPanelWidth = 228f;
     private const float ActionPanelVerticalPadding = 0f;
@@ -171,11 +171,9 @@ public class UIManager : MonoBehaviour
             return;
         }
 
-#if UNITY_EDITOR
         HandleEditorHandCardShortcut();
         HandleEditorQuestionShortcut();
         HandleEditorMoneyShortcut();
-#endif
         UpdateTopInfo();
         UpdatePropertyInfoPanel();
         UpdateButtons();
@@ -248,6 +246,7 @@ public class UIManager : MonoBehaviour
         }
 
         questionOverlay.gameObject.SetActive(true);
+        AudioManager.Instance.PlaySfx(AudioIds.QuestionOpen);
         PlayPopupOpen(questionOverlay, "QuestionCard");
     }
 
@@ -293,6 +292,15 @@ public class UIManager : MonoBehaviour
         SetNoticeCardVisual(null);
         noticeOverlay.gameObject.SetActive(true);
         PlayPopupOpen(noticeOverlay, "NoticeCard");
+    }
+
+    public void ShowGameResultMenu(string title, string body)
+    {
+        ShowNotice(title, body, "\u56de\u5230\u83dc\u5355", ReturnToMenuScene);
+        if (noticeOverlay != null)
+        {
+            noticeOverlay.SetAsLastSibling();
+        }
     }
 
     public void ShowCardNotice(string title, CardData card, string buttonText = "\u7ee7\u7eed", Action onConfirm = null)
@@ -1251,6 +1259,22 @@ public class UIManager : MonoBehaviour
     {
         int width = PlayerPrefs.GetInt(ResolutionWidthPrefsKey, Screen.width);
         int height = PlayerPrefs.GetInt(ResolutionHeightPrefsKey, Screen.height);
+        bool clamped = false;
+
+        if (width < MinResolutionWidth || height < MinResolutionHeight)
+        {
+            width = MinResolutionWidth;
+            height = MinResolutionHeight;
+            clamped = true;
+        }
+
+        if (clamped)
+        {
+            PlayerPrefs.SetInt(ResolutionWidthPrefsKey, width);
+            PlayerPrefs.SetInt(ResolutionHeightPrefsKey, height);
+            PlayerPrefs.Save();
+        }
+
         selectedResolutionIndex = FindClosestResolutionIndex(width, height);
         selectedFullscreen = PlayerPrefs.GetInt(FullscreenPrefsKey, Screen.fullScreen ? 1 : 0) != 0;
     }
@@ -2426,7 +2450,11 @@ public class UIManager : MonoBehaviour
                     useButton.interactable = false;
                 }
 
-                cardButton.onClick.AddListener(() => ShowHandCardDialog(cardIndex));
+                cardButton.onClick.AddListener(() =>
+                {
+                    AudioManager.Instance.PlayUi(AudioIds.ButtonClick);
+                    ShowHandCardDialog(cardIndex);
+                });
             }
             else
             {
@@ -2507,13 +2535,21 @@ public class UIManager : MonoBehaviour
         if (handCardDialogUseButton != null)
         {
             handCardDialogUseButton.onClick.RemoveAllListeners();
-            handCardDialogUseButton.onClick.AddListener(UsePendingHandCard);
+            handCardDialogUseButton.onClick.AddListener(() =>
+            {
+                AudioManager.Instance.PlayUi(AudioIds.ButtonClick);
+                UsePendingHandCard();
+            });
         }
 
         if (handCardDialogCancelButton != null)
         {
             handCardDialogCancelButton.onClick.RemoveAllListeners();
-            handCardDialogCancelButton.onClick.AddListener(HideHandCardDialog);
+            handCardDialogCancelButton.onClick.AddListener(() =>
+            {
+                AudioManager.Instance.PlayUi(AudioIds.ButtonClick);
+                HideHandCardDialog();
+            });
         }
 
         handCardDialogOverlay.gameObject.SetActive(true);
@@ -2843,13 +2879,13 @@ public class UIManager : MonoBehaviour
             return;
         }
 
-        BindButton(MoveButton, gameManager.RequestRollDice);
+        BindButton(MoveButton, gameManager.RequestRollDice, false);
         BindButton(BuyButton, gameManager.RequestBuyOrUpgrade);
         BindButton(SkipButton, gameManager.RequestEndTurn);
         callbacksBound = true;
     }
 
-    private void BindButton(Button button, UnityEngine.Events.UnityAction action)
+    private void BindButton(Button button, UnityEngine.Events.UnityAction action, bool playClickSound = true)
     {
         if (button == null)
         {
@@ -2857,7 +2893,15 @@ public class UIManager : MonoBehaviour
         }
 
         button.onClick.RemoveAllListeners();
-        button.onClick.AddListener(action);
+        button.onClick.AddListener(() =>
+        {
+            if (playClickSound)
+            {
+                AudioManager.Instance.PlayUi(AudioIds.ButtonClick);
+            }
+
+            action?.Invoke();
+        });
     }
 
     private void UpdateButtonState(Button button, bool canUse)
@@ -2873,6 +2917,7 @@ public class UIManager : MonoBehaviour
 
     private void OnQuestionAnswered(int selectedIndex)
     {
+        AudioManager.Instance.PlayUi(AudioIds.ButtonClick);
         Action<int> callback = questionCallback;
         HideQuestion();
         callback?.Invoke(selectedIndex);
@@ -2880,6 +2925,7 @@ public class UIManager : MonoBehaviour
 
     private void OnNoticeConfirmed()
     {
+        AudioManager.Instance.PlayUi(AudioIds.ButtonClick);
         Action callback = noticeCallback;
         HideNotice();
         callback?.Invoke();
@@ -2903,7 +2949,6 @@ public class UIManager : MonoBehaviour
         }
     }
 
-#if UNITY_EDITOR
     private void HandleEditorHandCardShortcut()
     {
         if (!Input.GetKeyDown(KeyCode.Q) || gameManager == null || !gameManager.ShouldShowHumanHand())
@@ -2942,7 +2987,6 @@ public class UIManager : MonoBehaviour
 
         gameManager.EditorGiveMoneyToCurrentPlayer(1000);
     }
-#endif
 
     private void SetDebugLogPanelVisible(bool visible)
     {
