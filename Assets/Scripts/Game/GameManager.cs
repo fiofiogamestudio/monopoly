@@ -1683,6 +1683,12 @@ public class GameManager : MonoBehaviour
                 return "\u7f8e\u98df";
             case 3:
                 return "\u5730\u6807";
+            case 4:
+                return "\u540d\u4eba";
+            case 5:
+                return "\u975e\u9057\u6c11\u4fd7";
+            case 6:
+                return "\u79c0\u4e3d\u5c71\u6c34";
             default:
                 return string.Empty;
         }

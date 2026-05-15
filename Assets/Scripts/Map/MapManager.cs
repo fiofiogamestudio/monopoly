@@ -268,6 +268,13 @@ public class MapManager : MonoBehaviour
 
         if (!CustomLevelLayouts.TryGetValue(mapLoader.CurrentLevel, out layout))
         {
+            if ((mapLoader.CurrentLevel == 4 || mapLoader.CurrentLevel == 5 || mapLoader.CurrentLevel == 6) &&
+                CustomLevelLayouts.TryGetValue(3, out layout) &&
+                layout.TileCount == targetCount)
+            {
+                return true;
+            }
+
             return false;
         }
 

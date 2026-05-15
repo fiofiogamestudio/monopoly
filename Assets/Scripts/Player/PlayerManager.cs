@@ -119,12 +119,15 @@ public static class GameRoleCatalog
 public static class GameSessionConfig
 {
     public const int MinLevelIndex = 1;
-    public const int MaxLevelIndex = 3;
+    public const int MaxLevelIndex = 6;
     public const int DefaultLevelIndex = 1;
-    public const int DefaultTargetMoneyToWin = 18000;
+    public const int DefaultTargetMoneyToWin = 24000;
     public const int MinPlayerCount = 1;
     public const int MaxPlayerCount = 4;
-    private static readonly int[] DefaultTargetMoneyToWinByLevel = { 12000, 14000, 18000 };
+    private static readonly int[] PlayableLevelIndices = { 1, 2, 3, 4, 5, 6 };
+    private static readonly int[] DefaultTargetMoneyToWinByLevel = { 12000, 14000, 18000, 22000, 23000, 24000 };
+
+    public static IReadOnlyList<int> AvailableLevelIndices => PlayableLevelIndices;
 
     public static int SelectedLevel { get; private set; } = DefaultLevelIndex;
     public static bool HasExplicitLevelSelection { get; private set; }
@@ -135,16 +138,16 @@ public static class GameSessionConfig
 
     public static void SetLevel(int levelIndex)
     {
-        SelectedLevel = Mathf.Clamp(levelIndex, MinLevelIndex, MaxLevelIndex);
+        SelectedLevel = ResolvePlayableLevel(levelIndex);
         HasExplicitLevelSelection = true;
     }
 
     public static int SetDebugDefaultLevel(int levelIndex)
     {
-        int clampedLevel = Mathf.Clamp(levelIndex, MinLevelIndex, MaxLevelIndex);
-        SelectedLevel = clampedLevel;
+        int playableLevel = ResolvePlayableLevel(levelIndex);
+        SelectedLevel = playableLevel;
         HasExplicitLevelSelection = true;
-        return clampedLevel;
+        return playableLevel;
     }
 
     public static int ResolveLevel(int fallbackLevel)
@@ -156,8 +159,7 @@ public static class GameSessionConfig
 
     public static int ResolveDefaultLevel(int fallbackLevel)
     {
-        int clampedFallback = Mathf.Clamp(fallbackLevel, MinLevelIndex, MaxLevelIndex);
-        return clampedFallback;
+        return ResolvePlayableLevel(fallbackLevel);
     }
 
     public static void ResetLevelSelection()
@@ -168,14 +170,40 @@ public static class GameSessionConfig
 
     public static int GetDefaultTargetMoneyToWin(int levelIndex)
     {
-        int clampedLevel = Mathf.Clamp(levelIndex, MinLevelIndex, MaxLevelIndex);
-        int arrayIndex = clampedLevel - MinLevelIndex;
+        int playableLevel = ResolvePlayableLevel(levelIndex);
+        int arrayIndex = playableLevel - MinLevelIndex;
         if (arrayIndex >= 0 && arrayIndex < DefaultTargetMoneyToWinByLevel.Length)
         {
-            return DefaultTargetMoneyToWinByLevel[arrayIndex];
+            int target = DefaultTargetMoneyToWinByLevel[arrayIndex];
+            if (target > 0)
+            {
+                return target;
+            }
         }
 
         return DefaultTargetMoneyToWin;
+    }
+
+    public static int ResolvePlayableLevel(int levelIndex)
+    {
+        int clampedLevel = Mathf.Clamp(levelIndex, MinLevelIndex, MaxLevelIndex);
+        for (int i = 0; i < PlayableLevelIndices.Length; i++)
+        {
+            if (PlayableLevelIndices[i] == clampedLevel)
+            {
+                return PlayableLevelIndices[i];
+            }
+        }
+
+        for (int i = 0; i < PlayableLevelIndices.Length; i++)
+        {
+            if (PlayableLevelIndices[i] >= clampedLevel)
+            {
+                return PlayableLevelIndices[i];
+            }
+        }
+
+        return PlayableLevelIndices[PlayableLevelIndices.Length - 1];
     }
 
     public static int GetConfiguredTargetMoneyToWin(int levelIndex)

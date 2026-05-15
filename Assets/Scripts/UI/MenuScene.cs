@@ -28,7 +28,10 @@ public class MenuScene : MonoBehaviour
     {
         "\u7b2c\u4e00\u5173\n\u670d\u9970",
         "\u7b2c\u4e8c\u5173\n\u7f8e\u98df",
-        "\u7b2c\u4e09\u5173\n\u5730\u6807"
+        "\u7b2c\u4e09\u5173\n\u5730\u6807",
+        "\u7b2c\u56db\u5173\n\u540d\u4eba",
+        "\u7b2c\u4e94\u5173\n\u975e\u9057\u6c11\u4fd7",
+        "\u7b2c\u516d\u5173\n\u79c0\u4e3d\u5c71\u6c34"
     };
     private static readonly Color SelectedBorderColor = new Color(0.99f, 0.95f, 0.74f, 1f);
     private static readonly Color SelectedPortraitFrameColor = new Color(0.98f, 0.96f, 0.86f, 1f);
@@ -275,7 +278,8 @@ public class MenuScene : MonoBehaviour
         _levelBackButton = panelTf.Find("BackButton")?.GetComponent<Button>();
         _levelNextButton = panelTf.Find("NextButton")?.GetComponent<Button>();
 
-        int buttonCount = GameSessionConfig.MaxLevelIndex - GameSessionConfig.MinLevelIndex + 1;
+        IReadOnlyList<int> playableLevels = GameSessionConfig.AvailableLevelIndices;
+        int buttonCount = playableLevels.Count;
         _levelButtons = new Button[buttonCount];
         _levelButtonTexts = new Text[buttonCount];
 
@@ -286,9 +290,10 @@ public class MenuScene : MonoBehaviour
             return;
         }
 
-        for (int level = GameSessionConfig.MinLevelIndex; level <= GameSessionConfig.MaxLevelIndex; level++)
+        for (int i = 0; i < playableLevels.Count; i++)
         {
-            int index = level - GameSessionConfig.MinLevelIndex;
+            int level = playableLevels[i];
+            int index = i;
             Button btn = buttonsRoot.Find($"LevelButton{level}")?.GetComponent<Button>();
             if (btn == null)
             {
@@ -528,10 +533,11 @@ public class MenuScene : MonoBehaviour
 
         if (_levelButtons != null)
         {
-            for (int level = GameSessionConfig.MinLevelIndex; level <= GameSessionConfig.MaxLevelIndex; level++)
+            IReadOnlyList<int> playableLevels = GameSessionConfig.AvailableLevelIndices;
+            for (int i = 0; i < playableLevels.Count; i++)
             {
-                int selected = level;
-                int index = level - GameSessionConfig.MinLevelIndex;
+                int selected = playableLevels[i];
+                int index = i;
                 if (index < 0 || index >= _levelButtons.Length || _levelButtons[index] == null)
                 {
                     continue;
@@ -677,7 +683,7 @@ public class MenuScene : MonoBehaviour
 
     private void SelectLevel(int level)
     {
-        selectedLevel = Mathf.Clamp(level, GameSessionConfig.MinLevelIndex, GameSessionConfig.MaxLevelIndex);
+        selectedLevel = GameSessionConfig.ResolvePlayableLevel(level);
         RefreshLevelSelection();
         Debug.Log($"[MenuScene] Selected level: {selectedLevel}");
     }
@@ -689,9 +695,11 @@ public class MenuScene : MonoBehaviour
             return;
         }
 
-        for (int level = GameSessionConfig.MinLevelIndex; level <= GameSessionConfig.MaxLevelIndex; level++)
+        IReadOnlyList<int> playableLevels = GameSessionConfig.AvailableLevelIndices;
+        for (int i = 0; i < playableLevels.Count; i++)
         {
-            int index = level - GameSessionConfig.MinLevelIndex;
+            int level = playableLevels[i];
+            int index = i;
             if (index < _levelButtons.Length && _levelButtons[index] != null)
             {
                 bool selected = level == selectedLevel;

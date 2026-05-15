@@ -9,7 +9,10 @@ public enum TileType
     JiHui = 3,
     DaoJu = 4,
     DaTi = 5,
-    KongDi = 6
+    KongDi = 6,
+    MingRen = 7,
+    ShanShui = 8,
+    FeiYi = 9
 }
 
 public static class TileTypeExtension
@@ -41,6 +44,12 @@ public static class TileTypeExtension
                 return "\u7b54\u9898";
             case TileType.KongDi:
                 return "";
+            case TileType.MingRen:
+                return "\u540d\u4eba";
+            case TileType.ShanShui:
+                return "\u5c71\u6c34";
+            case TileType.FeiYi:
+                return "\u975e\u9057";
             default:
                 return "\u672a\u77e5";
         }
@@ -69,6 +78,12 @@ public static class TileTypeExtension
                 return CreatePalette("A83E5E", "F28CAB", "D65479", "FFD9E6", "4B1527");
             case TileType.KongDi:
                 return CreatePalette("6B7280", "D1D5DB", "9CA3AF", "E5E7EB", "374151");
+            case TileType.MingRen:
+                return CreatePalette("684D8E", "D8C6FF", "8B5FD6", "EFE6FF", "2E2147");
+            case TileType.ShanShui:
+                return CreatePalette("2F6F73", "9ADDCB", "2E9F8F", "D8F5EB", "14393C");
+            case TileType.FeiYi:
+                return CreatePalette("7A3F2A", "F5B86A", "D86B35", "FFE1B8", "3D1E12");
             default:
                 return CreatePalette("9CA3AF", "F8FAFC", "6B7280", "E5E7EB", "1F2937");
         }

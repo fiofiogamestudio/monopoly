@@ -1,6 +1,6 @@
 {
   "startMoney": 8000,
   "enableTargetMoneyVictory": true,
-  "targetMoneyToWin": 18000,
-  "targetMoneyToWinByLevel": [12000, 14000, 18000]
+  "targetMoneyToWin": 24000,
+  "targetMoneyToWinByLevel": [12000, 14000, 18000, 22000, 23000, 24000]
 }

@@ -140,7 +140,7 @@ public class TileController : MonoBehaviour
         currentModelInstance = Instantiate(modelPrefab, transform);
         currentModelInstance.transform.SetParent(transform, false);
         currentModelInstance.transform.localPosition = gridOffset;
-        currentModelInstance.transform.localRotation = Quaternion.identity;
+        currentModelInstance.transform.localRotation = GetTileModelRotation(tileData);
         currentModelInstance.transform.localScale = Vector3.one;
 
         if (modelBase != null)
@@ -535,6 +535,16 @@ public class TileController : MonoBehaviour
         return digitEnd > digitStart
             && int.TryParse(tileId.Substring(digitStart, digitEnd - digitStart), out levelNumber)
             && levelNumber > 0;
+    }
+
+    private static Quaternion GetTileModelRotation(TileData data)
+    {
+        if (TryGetLevelNumber(data, out int levelNumber) && levelNumber == 4)
+        {
+            return Quaternion.Euler(0f, 180f, 0f);
+        }
+
+        return Quaternion.identity;
     }
 
     private void EnsureRuntimeLabels()

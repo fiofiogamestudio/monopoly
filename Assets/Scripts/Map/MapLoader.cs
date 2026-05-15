@@ -7,9 +7,9 @@ public class MapLoader : MonoBehaviour
     [SerializeField, Range(GameSessionConfig.MinLevelIndex, GameSessionConfig.MaxLevelIndex)]
     private int defaultLevel = GameSessionConfig.DefaultLevelIndex;
     [SerializeField]
-    private string[] levelMapResources = { "map1", "map2", "map3" };
+    private string[] levelMapResources = { "map1", "map2", "map3", "map4", "map5", "map6" };
     [SerializeField]
-    private string fallbackMapResource = "map3";
+    private string fallbackMapResource = "map6";
 
     [Header("Debug Shortcuts")]
     [SerializeField]
@@ -59,7 +59,7 @@ public class MapLoader : MonoBehaviour
 
     private void LoadLevel(int levelIndex)
     {
-        CurrentLevel = Mathf.Clamp(levelIndex, GameSessionConfig.MinLevelIndex, GameSessionConfig.MaxLevelIndex);
+        CurrentLevel = GameSessionConfig.ResolvePlayableLevel(levelIndex);
         CurrentMapResource = GetMapResourceName(CurrentLevel);
 
         MapWrapper wrapper = LoadMapWrapper(CurrentMapResource);
@@ -91,18 +91,40 @@ public class MapLoader : MonoBehaviour
             return 3;
         }
 
+        if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4))
+        {
+            return 4;
+        }
+
+        if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
+        {
+            return 5;
+        }
+
+        if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6))
+        {
+            return 6;
+        }
+
         return 0;
     }
 
     private string GetMapResourceName(int levelIndex)
     {
-        int arrayIndex = Mathf.Clamp(levelIndex, GameSessionConfig.MinLevelIndex, GameSessionConfig.MaxLevelIndex) - 1;
+        int clampedLevel = GameSessionConfig.ResolvePlayableLevel(levelIndex);
+        int arrayIndex = clampedLevel - 1;
         if (levelMapResources != null &&
             arrayIndex >= 0 &&
             arrayIndex < levelMapResources.Length &&
             !string.IsNullOrEmpty(levelMapResources[arrayIndex]))
         {
             return levelMapResources[arrayIndex];
+        }
+
+        string conventionResourceName = $"map{clampedLevel}";
+        if (Resources.Load<TextAsset>(conventionResourceName) != null)
+        {
+            return conventionResourceName;
         }
 
         return fallbackMapResource;

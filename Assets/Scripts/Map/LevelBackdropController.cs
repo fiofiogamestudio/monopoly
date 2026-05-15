@@ -12,6 +12,9 @@ public class LevelBackdropController : MonoBehaviour
     [SerializeField] private string level1TexturePath = "LevelBackgrounds/Level1";
     [SerializeField] private string level2TexturePath = "LevelBackgrounds/Level2";
     [SerializeField] private string level3TexturePath = "LevelBackgrounds/Level3";
+    [SerializeField] private string level4TexturePath = "LevelBackgrounds/Level4";
+    [SerializeField] private string level5TexturePath = "LevelBackgrounds/Level5";
+    [SerializeField] private string level6TexturePath = "LevelBackgrounds/Level6";
 
     [Header("Look")]
     [SerializeField] private Color tint = Color.white;
@@ -121,6 +124,9 @@ public class LevelBackdropController : MonoBehaviour
             1 => level1TexturePath,
             2 => level2TexturePath,
             3 => level3TexturePath,
+            4 => level4TexturePath,
+            5 => level5TexturePath,
+            6 => level6TexturePath,
             _ => level1TexturePath,
         };
 
@@ -130,6 +136,20 @@ public class LevelBackdropController : MonoBehaviour
         }
 
         Sprite sprite = Resources.Load<Sprite>(resourcePath);
+        if (sprite == null)
+        {
+            Texture2D texture = Resources.Load<Texture2D>(resourcePath);
+            if (texture != null)
+            {
+                sprite = Sprite.Create(
+                    texture,
+                    new Rect(0f, 0f, texture.width, texture.height),
+                    new Vector2(0.5f, 0.5f),
+                    100f);
+                sprite.name = texture.name;
+            }
+        }
+
         if (sprite != null && sprite.texture != null)
         {
             sprite.texture.wrapMode = TextureWrapMode.Clamp;
